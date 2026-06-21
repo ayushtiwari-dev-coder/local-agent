@@ -1,0 +1,15 @@
+# Local SQLite database
+assistant.db
+assistant.db-journal
+assistant.db-wal
+
+# Configuration and secrets
+.env
+.vscode
+
+# Python caching
+__pycache__/
+*.pyc
+
+#dev files
+.txt

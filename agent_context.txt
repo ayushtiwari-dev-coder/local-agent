@@ -1,0 +1,716 @@
+============================================================
+FILE: database\connection.py
+============================================================
+
+import os
+import sqlite3
+
+# 1. Dynamically locate the user's home directory (works on Windows, Mac, and Linux)
+HOME_DIR = os.path.expanduser("~")
+
+# 2. Define the hidden folder path inside the home directory
+APP_DIR = os.path.join(HOME_DIR, ".local_workflow_agent")
+
+# 3. Path to the database file inside the hidden folder
+DATABASE_PATH = os.path.join(APP_DIR, "assistant.db")
+
+def get_connection() -> sqlite3.Connection:
+    """
+    Creates and returns a connection to the SQLite database.
+    Ensures the central hidden directory exists before connecting.
+    """
+    try:
+        # Create the hidden folder if it does not exist yet
+        os.makedirs(APP_DIR, exist_ok=True)
+        
+        # Connect to the central database file
+        conn = sqlite3.connect(DATABASE_PATH)
+        
+        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.row_factory = sqlite3.Row
+        
+        return conn
+        
+    except (sqlite3.Error, OSError) as e:
+        raise RuntimeError(f"Failed to connect to database: {e}") from e
+
+============================================================
+FILE: database\helper.py
+============================================================
+
+import sqlite3
+from database.connection import get_connection
+
+def execute_read(query: str, params: tuple = (), fetch_one: bool = False) -> any:
+    """
+    Executes a SELECT query, manages the connection lifecycle, 
+    and automatically converts rows to dictionaries.
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.execute(query, params)
+        if fetch_one:
+            row = cursor.fetchone()
+            return dict(row) if row is not None else None
+        else:
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+            
+    except sqlite3.Error as e:
+        raise RuntimeError(f"Database read error: {e}") from e
+    finally:
+        conn.close()
+
+
+def execute_write(query: str, params: tuple = ()) -> int:
+    """
+    Executes an INSERT, UPDATE, or DELETE query within a transaction context.
+    Returns:
+        - lastrowid (for INSERTs)
+        - rowcount (number of modified rows for UPDATE/DELETE)
+    """
+    conn = get_connection()
+    try:
+        with conn:
+            cursor = conn.execute(query, params)
+            # If it was an INSERT, return the newly created row's ID
+            if cursor.lastrowid and cursor.lastrowid > 0:
+                return cursor.lastrowid
+            # For UPDATE/DELETE, return the count of modified rows
+            return cursor.rowcount
+            
+    except sqlite3.Error as e:
+        # We let the raw exception propagate so specific query files 
+        # can catch specialized errors (like sqlite3.IntegrityError)
+        raise e
+    finally:
+        conn.close()
+
+============================================================
+FILE: database\table_generator.py
+============================================================
+
+import sqlite3
+from database.connection import get_connection
+
+def create_tables() -> None:
+    """
+    Creates all foundational database tables if they do not exist.
+    Raises RuntimeError if table creation fails.
+    """
+    # SQL commands to build our schemas
+    queries = [
+        # 1. Users Table
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            username TEXT NOT NULL UNIQUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+        
+        # 2. Projects Table
+        """
+        CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+        
+        # 3. Tasks Table
+        """
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        """,
+        
+        # 4. Conversations Table
+        """
+        CREATE TABLE IF NOT EXISTS conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            title TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+        );
+        """,
+        
+        # 5. Messages Table
+        """
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER NOT NULL,
+            role TEXT NOT NULL, -- 'system', 'user', or 'assistant'
+            content TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+        );
+        """,
+        
+        # 6. Memories Table
+        """
+        CREATE TABLE IF NOT EXISTS memories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'general',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+        
+        # 7. Model Usage Table
+        """
+        CREATE TABLE IF NOT EXISTS model_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER,
+            model_name TEXT NOT NULL,
+            prompt_tokens INTEGER NOT NULL,
+            completion_tokens INTEGER NOT NULL,
+            total_tokens INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+        );
+        """,
+        
+        # 8. Tool Execution Logs Table
+        """
+        CREATE TABLE IF NOT EXISTS tool_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER,
+            tool_name TEXT NOT NULL,
+            arguments TEXT NOT NULL, -- Stored as a JSON-formatted string
+            output TEXT,
+            status TEXT NOT NULL, -- 'success' or 'error'
+            error_message TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+        );
+        """,
+
+        # 9. Summaries Table
+        """
+        CREATE TABLE IF NOT EXISTS summaries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER NOT NULL,
+            summary_text TEXT NOT NULL,
+            last_summarized_message_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+        );
+        """
+    ]
+
+    try:
+        # Obtain connection
+        conn = get_connection()
+        
+        # Use a transaction context. If any query fails, all changes are rolled back.
+        with conn:
+            for query in queries:
+                conn.execute(query)
+                
+    except (sqlite3.Error, RuntimeError) as e:
+        # Wrap database issues in a clean runtime exception for upper layers to handle
+        raise RuntimeError(f"Database initialization failed: {e}") from e
+    finally:
+        # Ensure the connection is always closed, even on failure
+        if 'conn' in locals():
+            conn.close()
+
+============================================================
+FILE: database\__init__.py
+============================================================
+
+
+
+============================================================
+FILE: queries\conversation_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+
+def create_conversation(user_id: int = None, title: str = "New Conversation") -> dict:
+    """
+    Creates a new conversation record.
+    """
+    query = "INSERT INTO conversations (user_id, title) VALUES (?, ?);"
+    conversation_id = execute_write(query, (user_id, title))
+    return get_conversation_by_id(conversation_id)
+
+
+def get_conversation_by_id(conversation_id: int) -> dict:
+    """
+    Retrieves a single conversation by its ID.
+    """
+    query = "SELECT id, user_id, title, created_at FROM conversations WHERE id = ?;"
+    conversation = execute_read(query, (conversation_id,), fetch_one=True)
+    if conversation is None:
+        raise ValueError(f"Conversation with ID {conversation_id} not found.")
+    return conversation
+
+
+def get_all_conversations() -> list[dict]:
+    """
+    Retrieves all conversations (newest first).
+    """
+    query = "SELECT id, user_id, title, created_at FROM conversations ORDER BY created_at DESC;"
+    return execute_read(query)
+
+
+def update_conversation_title(conversation_id: int, title: str) -> dict:
+    """
+    Updates the title of a conversation.
+    """
+    query = "UPDATE conversations SET title = ? WHERE id = ?;"
+    rows_affected = execute_write(query, (title, conversation_id))
+    if rows_affected == 0:
+        raise ValueError(f"Conversation with ID {conversation_id} not found.")
+    return get_conversation_by_id(conversation_id)
+
+
+def delete_conversation(conversation_id: int) -> None:
+    """
+    Deletes conversation. Linked messages delete automatically via ON DELETE CASCADE.
+    """
+    query = "DELETE FROM conversations WHERE id = ?;"
+    rows_affected = execute_write(query, (conversation_id,))
+    if rows_affected == 0:
+        raise ValueError(f"Conversation with ID {conversation_id} not found.")
+
+============================================================
+FILE: queries\memory_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+
+def create_memory(content: str, category: str = "general") -> dict:
+    """
+    Saves a new long-term memory fact or preference.
+    """
+    query = "INSERT INTO memories (content, category) VALUES (?, ?);"
+    memory_id = execute_write(query, (content, category))
+    return get_memory_by_id(memory_id)
+
+
+def get_memory_by_id(memory_id: int) -> dict:
+    """
+    Retrieves a single memory by its ID.
+    """
+    query = "SELECT id, content, category, created_at FROM memories WHERE id = ?;"
+    memory = execute_read(query, (memory_id,), fetch_one=True)
+    if memory is None:
+        raise ValueError(f"Memory with ID {memory_id} not found.")
+    return memory
+
+
+def search_memories(search_term: str) -> list[dict]:
+    """
+    Keyword searches content and categories using wildcards.
+    """
+    query = "SELECT id, content, category, created_at FROM memories WHERE content LIKE ? OR category LIKE ? ORDER BY created_at DESC;"
+    wildcard_term = f"%{search_term}%"
+    return execute_read(query, (wildcard_term, wildcard_term))
+
+
+def get_all_memories() -> list[dict]:
+    """
+    Retrieves all stored memories.
+    """
+    query = "SELECT id, content, category, created_at FROM memories ORDER BY created_at DESC;"
+    return execute_read(query)
+
+
+def delete_memory(memory_id: int) -> None:
+    """
+    Deletes a specific memory record.
+    """
+    query = "DELETE FROM memories WHERE id = ?;"
+    rows_affected = execute_write(query, (memory_id,))
+    if rows_affected == 0:
+        raise ValueError(f"Memory with ID {memory_id} not found.")
+
+============================================================
+FILE: queries\message_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+
+def create_message(conversation_id: int, role: str, content: str) -> dict:
+    """
+    Creates a new message. Validates role parameter first.
+    """
+    valid_roles = {"system", "user", "assistant"}
+    if role not in valid_roles:
+        raise ValueError(f"Invalid message role '{role}'. Must be one of {valid_roles}")
+        
+    query = "INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?);"
+    try:
+        message_id = execute_write(query, (conversation_id, role, content))
+        return get_message_by_id(message_id)
+    except sqlite3.IntegrityError as e:
+        raise ValueError(f"Cannot create message. Conversation with ID {conversation_id} does not exist.") from e
+
+
+def get_message_by_id(message_id: int) -> dict:
+    """
+    Retrieves a single message by its ID.
+    """
+    query = "SELECT id, conversation_id, role, content, created_at FROM messages WHERE id = ?;"
+    message = execute_read(query, (message_id,), fetch_one=True)
+    if message is None:
+        raise ValueError(f"Message with ID {message_id} not found.")
+    return message
+
+
+def get_messages_by_conversation(conversation_id: int) -> list[dict]:
+    """
+    Retrieves all messages for a specific conversation in chronological order.
+    """
+    query = "SELECT id, conversation_id, role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC;"
+    return execute_read(query, (conversation_id,))
+
+============================================================
+FILE: queries\model_usage_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+
+def log_model_usage(conversation_id: int | None, model_name: str, prompt_tokens: int, completion_tokens: int) -> dict:
+    """
+    Logs token consumption. Automatically sums total_tokens.
+    """
+    total_tokens = prompt_tokens + completion_tokens
+    query = "INSERT INTO model_usage (conversation_id, model_name, prompt_tokens, completion_tokens, total_tokens) VALUES (?, ?, ?, ?, ?);"
+    usage_id = execute_write(query, (conversation_id, model_name, prompt_tokens, completion_tokens, total_tokens))
+    return get_usage_by_id(usage_id)
+
+
+def get_usage_by_id(usage_id: int) -> dict:
+    """
+    Retrieves a single usage log record.
+    """
+    query = "SELECT id, conversation_id, model_name, prompt_tokens, completion_tokens, total_tokens, created_at FROM model_usage WHERE id = ?;"
+    usage = execute_read(query, (usage_id,), fetch_one=True)
+    if usage is None:
+        raise ValueError(f"Usage record with ID {usage_id} not found.")
+    return usage
+
+
+def get_total_usage_stats() -> dict:
+    """
+    Retrieves aggregate token consumption statistics across the system.
+    """
+    query = """
+    SELECT 
+        COALESCE(SUM(prompt_tokens), 0) AS total_prompt_tokens, 
+        COALESCE(SUM(completion_tokens), 0) AS total_completion_tokens, 
+        COALESCE(SUM(total_tokens), 0) AS grand_total_tokens 
+    FROM model_usage;
+    """
+    return execute_read(query, fetch_one=True)
+
+============================================================
+FILE: queries\project_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+
+def create_project(name: str, description: str = None) -> dict:
+    """
+    Creates a new project. Default status is 'active'.
+    """
+    query = "INSERT INTO projects (name, description) VALUES (?, ?);"
+    try:
+        project_id = execute_write(query, (name, description))
+        return get_project_by_id(project_id)
+    except sqlite3.IntegrityError as e:
+        raise ValueError(f"Project with name '{name}' already exists.") from e
+
+
+def get_project_by_id(project_id: int) -> dict:
+    """
+    Retrieves a single project by its ID.
+    """
+    query = "SELECT id, name, description, status, created_at FROM projects WHERE id = ?;"
+    project = execute_read(query, (project_id,), fetch_one=True)
+    if project is None:
+        raise ValueError(f"Project with ID {project_id} not found.")
+    return project
+
+
+def get_all_projects() -> list[dict]:
+    """
+    Retrieves all projects stored in the database.
+    """
+    query = "SELECT id, name, description, status, created_at FROM projects ORDER BY created_at DESC;"
+    return execute_read(query)
+
+
+def update_project_status(project_id: int, status: str) -> dict:
+    """
+    Updates the status of an existing project.
+    """
+    query = "UPDATE projects SET status = ? WHERE id = ?;"
+    rows_affected = execute_write(query, (status, project_id))
+    if rows_affected == 0:
+        raise ValueError(f"Project with ID {project_id} not found.")
+    return get_project_by_id(project_id)
+
+============================================================
+FILE: queries\summary_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+
+def create_or_update_summary(conversation_id: int, summary_text: str, last_message_id: int) -> dict:
+    """
+    Saves or updates the running summary of a conversation (Context Compression).
+    """
+    existing_summary = get_summary_by_conversation(conversation_id)
+    
+    if existing_summary:
+        query = "UPDATE summaries SET summary_text = ?, last_summarized_message_id = ? WHERE conversation_id = ?;"
+        params = (summary_text, last_message_id, conversation_id)
+    else:
+        query = "INSERT INTO summaries (summary_text, last_summarized_message_id, conversation_id) VALUES (?, ?, ?);"
+        params = (summary_text, last_message_id, conversation_id)
+        
+    execute_write(query, params)
+    return get_summary_by_conversation(conversation_id)
+
+
+def get_summary_by_conversation(conversation_id: int) -> dict | None:
+    """
+    Retrieves the running summary for a specific conversation.
+    """
+    query = "SELECT id, conversation_id, summary_text, last_summarized_message_id, created_at FROM summaries WHERE conversation_id = ?;"
+    return execute_read(query, (conversation_id,), fetch_one=True)
+
+============================================================
+FILE: queries\task_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+
+def create_task(project_id: int, title: str, description: str = None) -> dict:
+    """
+    Creates a new task linked to a project.
+    """
+    query = "INSERT INTO tasks (project_id, title, description) VALUES (?, ?, ?);"
+    try:
+        task_id = execute_write(query, (project_id, title, description))
+        return get_task_by_id(task_id)
+    except sqlite3.IntegrityError as e:
+        raise ValueError(f"Cannot create task. Project with ID {project_id} does not exist.") from e
+
+
+def get_task_by_id(task_id: int) -> dict:
+    """
+    Retrieves a single task by its ID.
+    """
+    query = "SELECT id, project_id, title, description, status, created_at, completed_at FROM tasks WHERE id = ?;"
+    task = execute_read(query, (task_id,), fetch_one=True)
+    if task is None:
+        raise ValueError(f"Task with ID {task_id} not found.")
+    return task
+
+
+def get_tasks_by_project(project_id: int) -> list[dict]:
+    """
+    Retrieves all tasks linked to a specific project.
+    """
+    query = "SELECT id, project_id, title, description, status, created_at, completed_at FROM tasks WHERE project_id = ? ORDER BY created_at ASC;"
+    return execute_read(query, (project_id,))
+
+
+def update_task_status(task_id: int, status: str) -> dict:
+    """
+    Updates status and automatically controls the completed_at timestamp.
+    """
+    query = """
+    UPDATE tasks 
+    SET status = ?, 
+        completed_at = CASE WHEN ? = 'completed' THEN CURRENT_TIMESTAMP ELSE NULL END
+    WHERE id = ?;
+    """
+    rows_affected = execute_write(query, (status, status, task_id))
+    if rows_affected == 0:
+        raise ValueError(f"Task with ID {task_id} not found.")
+    return get_task_by_id(task_id)
+
+============================================================
+FILE: queries\tool_log_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+
+def log_tool_execution(
+    conversation_id: int | None, 
+    tool_name: str, 
+    arguments: str, 
+    status: str, 
+    output: str = None, 
+    error_message: str = None
+) -> dict:
+    """
+    Logs execution history and status of a tool.
+    """
+    if status not in {"success", "error"}:
+        raise ValueError("Tool execution status must be either 'success' or 'error'.")
+        
+    query = "INSERT INTO tool_logs (conversation_id, tool_name, arguments, output, status, error_message) VALUES (?, ?, ?, ?, ?, ?);"
+    log_id = execute_write(query, (conversation_id, tool_name, arguments, output, status, error_message))
+    return get_tool_log_by_id(log_id)
+
+
+def get_tool_log_by_id(log_id: int) -> dict:
+    """
+    Retrieves a single tool log entry.
+    """
+    query = "SELECT id, conversation_id, tool_name, arguments, output, status, error_message, created_at FROM tool_logs WHERE id = ?;"
+    log = execute_read(query, (log_id,), fetch_one=True)
+    if log is None:
+        raise ValueError(f"Tool log with ID {log_id} not found.")
+    return log
+
+
+def get_tool_logs_by_conversation(conversation_id: int) -> list[dict]:
+    """
+    Retrieves chronological tool executions inside a conversation context.
+    """
+    query = "SELECT id, conversation_id, tool_name, arguments, output, status, error_message, created_at FROM tool_logs WHERE conversation_id = ? ORDER BY created_at ASC;"
+    return execute_read(query, (conversation_id,))
+
+============================================================
+FILE: queries\user_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+
+def create_user(name: str, username: str) -> dict:
+    """
+    Inserts a new user into the users table.
+    """
+    query = "INSERT INTO users (name, username) VALUES (?, ?);"
+    try:
+        user_id = execute_write(query, (name, username))
+        return get_user_by_id(user_id)
+    except sqlite3.IntegrityError as e:
+        raise ValueError(f"Username '{username}' is already taken.") from e
+
+
+def get_user_by_id(user_id: int) -> dict:
+    """
+    Retrieves a user by their unique database ID.
+    """
+    query = "SELECT id, name, username, created_at FROM users WHERE id = ?;"
+    user = execute_read(query, (user_id,), fetch_one=True)
+    if user is None:
+        raise ValueError(f"User with ID {user_id} not found.")
+    return user
+
+
+def get_user_by_username(username: str) -> dict | None:
+    """
+    Retrieves a user by their unique username.
+    """
+    query = "SELECT id, name, username, created_at FROM users WHERE username = ?;"
+    return execute_read(query, (username,), fetch_one=True)
+
+
+def get_default_user() -> dict | None:
+    """
+    Retrieves the first user in the database.
+    """
+    query = "SELECT id, name, username, created_at FROM users ORDER BY id ASC LIMIT 1;"
+    return execute_read(query, fetch_one=True)
+
+============================================================
+FILE: tests\test_database.py
+============================================================
+
+import os
+import sqlite3
+# Import both the connection, the table creator, AND the database path from our database package
+from database.connection import get_connection, DATABASE_PATH
+from database.table_generator import create_tables
+
+def run_database_test() -> None:
+    """
+    Validates that the database file is created, tables are initialized,
+    and running table generation multiple times does not raise errors.
+    """
+    print("Starting database initialization test...")
+    
+    # 1. Run the table generation code
+    try:
+        create_tables()
+        print("Success: create_tables() executed without errors.")
+    except Exception as e:
+        raise AssertionError(f"create_tables() failed on initial run: {e}")
+
+    # 2. Verify that the database file actually exists at the correct path
+    # We now use the imported DATABASE_PATH instead of the hardcoded "assistant.db"
+    if not os.path.exists(DATABASE_PATH):
+        raise AssertionError(f"Database file was not created at '{DATABASE_PATH}'.")
+    print(f"Success: Database file found at '{DATABASE_PATH}'.")
+
+    # 3. Query SQLite system table to verify the expected tables exist
+    expected_tables = {
+        "users", "projects", "tasks", "conversations", 
+        "messages", "memories", "model_usage", "tool_logs","summaries"
+    }
+    
+    conn = get_connection()
+    try:
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        existing_tables = {row["name"] for row in cursor.fetchall()}
+        
+        # Verify each of our expected tables is present
+        missing_tables = expected_tables - existing_tables
+        if missing_tables:
+            raise AssertionError(f"Missing expected tables in database: {missing_tables}")
+            
+        print("Success: All 9 foundational tables verified in the schema.")
+        
+    finally:
+        conn.close()
+
+    # 4. Run create_tables() again to verify it is safe to run multiple times
+    try:
+        create_tables()
+        print("Success: Secondary run of create_tables() passed safely.")
+    except Exception as e:
+        raise AssertionError(f"create_tables() is not safe to run repeatedly: {e}")
+
+    print("\nDatabase verification tests passed.")
+
+if __name__ == "__main__":
+    run_database_test()
+
+============================================================
+FILE: tests\__init__.py
+============================================================
+
+
+
