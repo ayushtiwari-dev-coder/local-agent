@@ -2,7 +2,7 @@ import sqlite3
 import tiktoken
 from database.connection import get_connection
 from queries.conversation_queries import create_conversation
-from queries.message_queries import create_message, get_messages_by_conversation
+from queries.message_queries import create_message
 from queries.model_usage_queries import log_model_usage
 from queries.tool_log_queries import log_tool_execution
 
