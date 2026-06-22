@@ -1,63 +1,84 @@
 import os
+import json  # Import json to parse inputs
 
-# 1. Define our secure sandbox boundary
-# All file reads/writes must stay inside: ~/.local_workflow_agent/workspace/
 SANDBOX_ROOT = os.path.abspath(
     os.path.join(os.path.expanduser("~"), ".local_workflow_agent", "workspace")
 )
-# Ensure this folder physically exists on your drive
 os.makedirs(SANDBOX_ROOT, exist_ok=True)
 
-
 def _resolve_safe_path(path: str) -> str | None:
-    """
-    Resolves a user-provided path and verifies it remains strictly inside SANDBOX_ROOT.
-    Returns the resolved absolute path if safe, or None if it escapes the boundary.
-    """
-    # Join the root with the target path and resolve it absolutely (cleans up any '..')
     full_path = os.path.abspath(os.path.join(SANDBOX_ROOT, path))
-    
-    # Verify the sandbox root is the common parent directory
     if os.path.commonpath([full_path, SANDBOX_ROOT]) != SANDBOX_ROOT:
         return None
     return full_path
 
-
-def read_file(path: str) -> str:
+def read_files(paths_json: str) -> dict:
     """
-    Safely reads a local file inside the sandboxed workspace.
-    """
-    safe_path = _resolve_safe_path(path)
-    if safe_path is None:
-        return f"Error: Path '{path}' is outside the allowed workspace."
+    Safely reads multiple files from the sandboxed workspace in a single turn.
 
+    Args:
+        paths_json: A JSON string representing a list of file paths to read.
+                    Example: '["file1.txt", "subfolder/file2.py"]'
+    """
     try:
-        if not os.path.exists(safe_path):
-            return f"Error: File not found at path '{path}'."
-        if os.path.isdir(safe_path):
-            return f"Error: Path '{path}' is a directory, not a file."
-            
-        with open(safe_path, 'r', encoding='utf-8', errors='replace') as f:
-            return f.read()
+        paths = json.loads(paths_json)
     except Exception as e:
-        return f"Error: Failed to read file: {e}"
+        return {"error": f"Invalid JSON format for paths_json: {e}"}
 
+    results = {}
+    for path in paths:
+        safe_path = _resolve_safe_path(path)
+        if safe_path is None:
+            results[path] = f"Error: Path '{path}' is outside the allowed workspace."
+            continue
 
-def write_file(path: str, content: str) -> str:
+        try:
+            if not os.path.exists(safe_path):
+                results[path] = f"Error: File not found."
+            elif os.path.isdir(safe_path):
+                results[path] = f"Error: Path is a directory, not a file."
+            else:
+                with open(safe_path, 'r', encoding='utf-8', errors='replace') as f:
+                    results[path] = f.read()
+        except Exception as e:
+            results[path] = f"Error: Failed to read file: {e}"
+            
+    return results
+
+def write_files(files_json: str) -> dict:
     """
-    Safely writes content to a local file inside the sandboxed workspace.
-    """
-    safe_path = _resolve_safe_path(path)
-    if safe_path is None:
-        return f"Error: Path '{path}' is outside the allowed workspace."
+    Safely writes multiple files to disk inside the sandboxed workspace.
 
+    Args:
+        files_json: A JSON string representing a list of file dictionaries containing 'path' and 'content'.
+                    Example: '[{"path": "notes.txt", "content": "My notes"}, {"path": "script.py", "content": "print(1)"}]'
+    """
     try:
-        parent_dir = os.path.dirname(safe_path)
-        if parent_dir and not os.path.exists(parent_dir):
-            os.makedirs(parent_dir, exist_ok=True)
-            
-        with open(safe_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        return f"Success: File written successfully to '{path}'."
+        files = json.loads(files_json)
     except Exception as e:
-        return f"Error: Failed to write file: {e}"
+        return {"error": f"Invalid JSON format for files_json: {e}"}
+
+    results = {}
+    for file_info in files:
+        path = file_info.get("path")
+        content = file_info.get("content", "")
+        if not path:
+            continue
+
+        safe_path = _resolve_safe_path(path)
+        if safe_path is None:
+            results[path] = f"Error: Path '{path}' is outside the allowed workspace."
+            continue
+
+        try:
+            parent_dir = os.path.dirname(safe_path)
+            if parent_dir and not os.path.exists(parent_dir):
+                os.makedirs(parent_dir, exist_ok=True)
+
+            with open(safe_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            results[path] = f"Success: File written successfully."
+        except Exception as e:
+            results[path] = f"Error: Failed to write file: {e}"
+
+    return results
