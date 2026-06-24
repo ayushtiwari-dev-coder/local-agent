@@ -26,7 +26,7 @@ class AgentEngine:
         genai.configure(api_key=resolved_key)
         self.api_key = resolved_key
         self.autonomous = autonomous
-        self.model_name = "gemini-2.5-flash-lite"
+        self.model_name = "gemini-3.1-flash-lite"
 
     def _format_context_for_gemini(self, db_messages: list[dict]) -> tuple[str | None, list[dict]]:
         """

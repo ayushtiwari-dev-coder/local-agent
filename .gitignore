@@ -12,4 +12,5 @@ __pycache__/
 *.pyc
 
 #dev files
-.txt
+agent_con_8.txt
+database_test.py
