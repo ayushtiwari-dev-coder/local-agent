@@ -1,11 +1,10 @@
 import os
-import json
 import google.generativeai as genai
-from tools.registry import get_all_tools, execute_tool
-from engine.loop_protector import check_for_infinite_loop  # Import our helper
+from tools.registry import get_all_tools
+from engine.loop_protector import check_for_infinite_loop
+from engine.handle_permissions import determine_and_execute_tool  # Import the helper
 from managers.conversation_manager import (
-    compile_llm_context, save_user_message, save_assistant_message,
-    log_api_usage, log_tool_run
+    compile_llm_context, save_user_message, save_assistant_message, log_api_usage
 )
 from managers.summary_manager import trigger_background_summary
 
@@ -18,7 +17,7 @@ class AgentEngine:
         genai.configure(api_key=resolved_key)
         self.api_key = resolved_key
         self.autonomous = autonomous
-        self.model_name = "gemini-2.5-flash"
+        self.model_name = "gemini-3.1-flash-lite"
 
     def _format_context_for_gemini(self, db_messages: list[dict]) -> tuple[str | None, list[dict]]:
         base_instructions = (
@@ -51,8 +50,6 @@ class AgentEngine:
         Safely invokes the background summary thread without locking execution.
         """
         try:
-            # Note: summary_manager's trigger_background_summary already spawns its own thread.
-            # We call it directly here to avoid redundant double-threading.
             trigger_background_summary(self.api_key, self.model_name, conversation_id)
         except Exception:
             pass
@@ -72,7 +69,6 @@ class AgentEngine:
             system_instruction=system_instruction
         )
         
-        # In-memory execution history for loop protection
         tool_call_history = []
         turn_count = 0
         MAX_TURNS = 15
@@ -102,45 +98,27 @@ class AgentEngine:
                 tool_name = function_calls.name
                 tool_args = dict(function_calls.args)
                 
-                # Use our external helper function to check for infinite loops
+                # Check for loops
                 is_looping, loop_error, serialized_args = check_for_infinite_loop(
                     tool_call_history, tool_name, tool_args
                 )
-                
                 if is_looping:
                     save_assistant_message(conversation_id, loop_error)
                     return loop_error
                 
-                # Handle Permissions
-                if not self.autonomous:
-                    if approval_callback is None:
-                        raise ValueError("Engine is in supervised mode, but no approval_callback was provided.")
-                    
-                    approved = approval_callback(tool_name, tool_args)
-                    if not approved:
-                        tool_output = f"Error: Permission Denied. User refused execution of '{tool_name}'."
-                        log_tool_run(
-                            conversation_id, tool_name,
-                            json.dumps(tool_args), "error", error_message="User denied permission."
-                        )
-                        status = "error"
-                    else:
-                        tool_output = execute_tool(tool_name, tool_args)
-                        status = "error" if "Error:" in str(tool_output) else "success"
-                        log_tool_run(conversation_id, tool_name, json.dumps(tool_args), status, output=tool_output)
-                else:
-                    tool_output = execute_tool(tool_name, tool_args)
-                    status = "error" if "Error:" in str(tool_output) else "success"
-                    log_tool_run(conversation_id, tool_name, json.dumps(tool_args), status, output=tool_output)
+                # Execute tool using our clean permission handler helper
+                tool_output, status = determine_and_execute_tool(
+                    tool_name, tool_args, conversation_id, self.autonomous, approval_callback
+                )
                 
-                # Record this execution in our local memory list for loop tracking
+                # Record the execution log inside local memory
                 tool_call_history.append({
                     'name': tool_name,
                     'args_json': serialized_args,
                     'status': status
                 })
                 
-                # Append tool calls to message history for ReAct flow
+                # Append tool response for the next model iteration
                 gemini_messages.append(candidate.content)
                 gemini_messages.append({
                     "role": "user",
@@ -155,8 +133,5 @@ class AgentEngine:
                 # Case: Final text response received!
                 final_text = response.text if response.text else ""
                 save_assistant_message(conversation_id, final_text)
-                
-                # Trigger background summarizer via our clean helper
                 self._trigger_summary_safely(conversation_id)
-                
                 return final_text
