@@ -7,6 +7,7 @@ from managers.conversation_manager import (
     compile_llm_context, save_user_message, save_assistant_message, log_api_usage
 )
 from managers.summary_manager import trigger_background_summary
+from engine.generate_with_retry import generate_with_retry
 
 class AgentEngine:
     def __init__(self, api_key: str | None = None, autonomous: bool = False):
@@ -80,7 +81,7 @@ class AgentEngine:
                 return error_msg
                 
             try:
-                response = model.generate_content(gemini_messages)
+                response = generate_with_retry(model,gemini_messages)
             except Exception as e:
                 raise RuntimeError(f"Gemini API execution failed: {e}") from e
             
