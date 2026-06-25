@@ -92,7 +92,12 @@ class AgentEngine:
             
             # Check for tool call
             candidate = response.candidates[0]
-            function_calls = candidate.content.parts[0].function_call if candidate.content.parts else None
+            function_calls = None
+            if candidate.content.parts:
+                for part in candidate.content.parts:
+                    if part.function_call and part.function_call.name:
+                        function_calls = part.function_call
+                        break
             
             if function_calls:
                 turn_count += 1
