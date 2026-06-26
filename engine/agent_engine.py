@@ -1,20 +1,23 @@
+# FILE: engine/agent_engine.py
 import os
 import google.generativeai as genai
 from tools.registry import get_all_tools
 from engine.loop_protector import check_for_infinite_loop
-from engine.handle_permissions import determine_and_execute_tool  # Import the helper
+from engine.handle_permissions import determine_and_execute_tool
 from managers.conversation_manager import (
     compile_llm_context, save_user_message, save_assistant_message, log_api_usage
 )
 from managers.summary_manager import trigger_background_summary
 from engine.generate_with_retry import generate_with_retry
+from utils.native_types_helpers import  _to_native_types
+
+
 
 class AgentEngine:
     def __init__(self, api_key: str | None = None, autonomous: bool = False):
         resolved_key = api_key or os.environ.get("GEMINI_API_KEY")
         if not resolved_key:
             raise ValueError("API Key missing. Must pass api_key or set GEMINI_API_KEY environment variable.")
-        
         genai.configure(api_key=resolved_key)
         self.api_key = resolved_key
         self.autonomous = autonomous
@@ -32,7 +35,6 @@ class AgentEngine:
         )
         system_instruction = base_instructions
         gemini_messages = []
-        
         for msg in db_messages:
             role = msg["role"]
             content = msg["content"]
@@ -47,19 +49,13 @@ class AgentEngine:
         return system_instruction, gemini_messages
 
     def _trigger_summary_safely(self, conversation_id: int) -> None:
-        """
-        Safely invokes the background summary thread without locking execution.
-        """
         try:
             trigger_background_summary(self.api_key, self.model_name, conversation_id)
         except Exception:
             pass
 
-    def send_message(self, conversation_id: int, user_text: str, approval_callback=None) -> str:
-        """
-        Executes the ReAct loop. Saves the turn, compiles local context,
-        manages permissions, and handles execution tracking.
-        """
+    def send_message(self, conversation_id: int, user_text: str, approval_callback=None, status_callback=None) -> str:
+        """ Executes the ReAct loop. Saves the turn, compiles local context, manages permissions, and handles execution tracking. """
         save_user_message(conversation_id, user_text)
         db_messages = compile_llm_context(conversation_id)
         system_instruction, gemini_messages = self._format_context_for_gemini(db_messages)
@@ -79,9 +75,9 @@ class AgentEngine:
                 error_msg = f"Error: Maximum tool execution limit ({MAX_TURNS} turns) reached."
                 save_assistant_message(conversation_id, error_msg)
                 return error_msg
-                
+            
             try:
-                response = generate_with_retry(model,gemini_messages)
+                response = generate_with_retry(model, gemini_messages, status_callback=status_callback)
             except Exception as e:
                 raise RuntimeError(f"Gemini API execution failed: {e}") from e
             
@@ -102,7 +98,8 @@ class AgentEngine:
             if function_calls:
                 turn_count += 1
                 tool_name = function_calls.name
-                tool_args = dict(function_calls.args)
+                # Recursively unpack complex protobuf parameters into clean native JSON types
+                tool_args = _to_native_types(function_calls.args)
                 
                 # Check for loops
                 is_looping, loop_error, serialized_args = check_for_infinite_loop(
@@ -128,15 +125,16 @@ class AgentEngine:
                 gemini_messages.append(candidate.content)
                 gemini_messages.append({
                     "role": "user",
-                    "parts": [{"function_response": {
-                        "name": tool_name,
-                        "response": {"result": tool_output}
-                    }}]
+                    "parts": [{
+                        "function_response": {
+                            "name": tool_name,
+                            "response": {"result": tool_output}
+                        }
+                    }]
                 })
                 continue
-                
             else:
-                # Case: Final text response received!
+                # Case: Final text response received
                 final_text = response.text if response.text else ""
                 save_assistant_message(conversation_id, final_text)
                 self._trigger_summary_safely(conversation_id)

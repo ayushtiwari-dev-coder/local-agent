@@ -28,11 +28,7 @@ def save_user_message(conversation_id: int, content: str) -> dict:
 MAX_CONTEXT_TOKENS = 100000
 
 def _estimate_tokens(messages: list[dict]) -> int:
-    """
-    Counts the exact number of tokens using a local BPE tokenizer (cl100k_base).
-    This is the exact tokenizer used by GPT-4 and is highly accurate for Gemini as well.
-    Runs 100% locally in microseconds.
-    """
+    
     try:
         # Get the standard local encoding used by modern models
         encoding = tiktoken.get_encoding("cl100k_base")

@@ -22,6 +22,9 @@ def cli_tool_approval_callback(tool_name: str, arguments: dict) -> bool:
     choice = input("👉 Allow this action? (y/n): ").strip().lower()
     return choice == "y"
 
+def cli_status_callback(message: str) -> None:
+    """Prints system-level status and retry updates to the console."""
+    print(f"⚙️ [System Status] {message}")
 
 def run_assistant_cli() -> None:
     """
@@ -85,7 +88,8 @@ def run_assistant_cli() -> None:
             response_text = engine.send_message(
                 conversation_id=conversation_id,
                 user_text=user_input,
-                approval_callback=cli_tool_approval_callback
+                approval_callback=cli_tool_approval_callback,
+                status_callback=cli_status_callback
             )
             
             print(f"\n🤖 Assistant: {response_text}\n")

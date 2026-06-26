@@ -1,5 +1,6 @@
+# FILE: tools/file_tools.py
 import os
-import json  # Import json to parse inputs
+import json
 
 SANDBOX_ROOT = os.path.abspath(
     os.path.join(os.path.expanduser("~"), ".local_workflow_agent", "workspace")
@@ -13,30 +14,32 @@ def _resolve_safe_path(path: str) -> str | None:
     return full_path
 
 def read_files(paths_json: str) -> dict:
-    """
-    Safely reads multiple files from the sandboxed workspace in a single turn.
-
-    Args:
-        paths_json: A JSON string representing a list of file paths to read.
-                    Example: '["file1.txt", "subfolder/file2.py"]'
-    """
+    """ Safely reads multiple files from the sandboxed workspace in a single turn. """
     try:
         paths = json.loads(paths_json)
     except Exception as e:
         return {"error": f"Invalid JSON format for paths_json: {e}"}
+    
+    if not isinstance(paths, list):
+        return {"error": "Expected a JSON list of paths."}
+
+    # Deduplicate paths to prevent redundant read actions
+    unique_paths = []
+    for p in paths:
+        if p and p not in unique_paths:
+            unique_paths.append(p)
 
     results = {}
-    for path in paths:
+    for path in unique_paths:
         safe_path = _resolve_safe_path(path)
         if safe_path is None:
             results[path] = f"Error: Path '{path}' is outside the allowed workspace."
             continue
-
         try:
             if not os.path.exists(safe_path):
-                results[path] = f"Error: File not found."
+                results[path] = "Error: File not found."
             elif os.path.isdir(safe_path):
-                results[path] = f"Error: Path is a directory, not a file."
+                results[path] = "Error: Path is a directory, not a file."
             else:
                 with open(safe_path, 'r', encoding='utf-8', errors='replace') as f:
                     results[path] = f.read()
@@ -46,39 +49,40 @@ def read_files(paths_json: str) -> dict:
     return results
 
 def write_files(files_json: str) -> dict:
-    """
-    Safely writes multiple files to disk inside the sandboxed workspace.
-
-    Args:
-        files_json: A JSON string representing a list of file dictionaries containing 'path' and 'content'.
-                    Example: '[{"path": "notes.txt", "content": "My notes"}, {"path": "script.py", "content": "print(1)"}]'
-    """
+    """ Safely writes multiple files to disk inside the sandboxed workspace. """
     try:
         files = json.loads(files_json)
     except Exception as e:
         return {"error": f"Invalid JSON format for files_json: {e}"}
 
-    results = {}
+    if not isinstance(files, list):
+        return {"error": "Expected a JSON list of file objects."}
+
+    # Deduplicate files by tracking unique paths.
+    # If duplicates are passed, only write the latest content for each path.
+    unique_files = {}
     for file_info in files:
+        if not isinstance(file_info, dict):
+            continue
         path = file_info.get("path")
         content = file_info.get("content", "")
-        if not path:
-            continue
+        if path:
+            unique_files[path] = content
 
+    results = {}
+    for path, content in unique_files.items():
         safe_path = _resolve_safe_path(path)
         if safe_path is None:
             results[path] = f"Error: Path '{path}' is outside the allowed workspace."
             continue
-
         try:
             parent_dir = os.path.dirname(safe_path)
             if parent_dir and not os.path.exists(parent_dir):
                 os.makedirs(parent_dir, exist_ok=True)
-
             with open(safe_path, 'w', encoding='utf-8') as f:
                 f.write(content)
-            results[path] = f"Success: File written successfully."
+            results[path] = "Success: File written successfully."
         except Exception as e:
             results[path] = f"Error: Failed to write file: {e}"
-
+            
     return results
