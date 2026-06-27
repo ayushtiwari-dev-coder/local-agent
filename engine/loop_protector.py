@@ -23,33 +23,23 @@ def check_for_infinite_loop(
     tool_call_history: list[dict], tool_name: str, tool_args: dict
 ) -> tuple[bool, str | None, str]:
     serialized_args = json.dumps(tool_args, sort_keys=True)
+    
+    # 1. Exact-arg repeat check (catches identical calls - REAL infinite loops)
+    total_identical_calls = 0
+    failed_identical_calls = 0
+    
+    for call in tool_call_history:
+        if call['name'] == tool_name and call['args_json'] == serialized_args:
+            total_identical_calls += 1
+            if call.get('status') == 'error':
+                failed_identical_calls += 1
 
-    # 1. Exact-arg repeat check (catches identical calls)
-    total_identical_calls = sum(
-        1 for call in tool_call_history
-        if call['name'] == tool_name and call['args_json'] == serialized_args
-    )
-    failed_identical_calls = sum(
-        1 for call in tool_call_history
-        if call['name'] == tool_name and call['args_json'] == serialized_args and call['status'] == 'error'
-    )
+    # Halt if it keeps trying the exact same failed action blindly
     if failed_identical_calls >= 1:
         return True, f"Error: Halting. '{tool_name}' already failed once with these exact params: {tool_args}.", serialized_args
+        
+    # Halt if it keeps repeating an action that already succeeded (wasting tokens)
     if total_identical_calls >= 1:
         return True, f"Error: Halting. '{tool_name}' already succeeded once with these exact params: {tool_args}.", serialized_args
-
-    # 2. Path-level repeat check (catches "same file, different content" loops)
-    current_paths = _extract_paths(tool_name, tool_args)
-    if current_paths:
-        same_path_calls = sum(
-            1 for call in tool_call_history
-            if call['name'] == tool_name
-            and (call.get('paths') and call['paths'] & current_paths)
-        )
-        if same_path_calls >= 1:
-            return True, (
-                f"Error: Halting. '{tool_name}' has already touched {current_paths} once this turn. "
-                f"Re-running on the same file(s) with different content is not allowed without explicit instruction."
-            ), serialized_args
-
+    
     return False, None, serialized_args

@@ -14,7 +14,13 @@ def _resolve_safe_path(path: str) -> str | None:
     return full_path
 
 def read_files(paths_json: str) -> dict:
-    """ Safely reads multiple files from the sandboxed workspace in a single turn. """
+    """ 
+    Safely reads multiple files from the sandboxed workspace in a single turn. 
+    
+    Args:
+        paths_json: A JSON-formatted string representing a LIST of file paths.
+        Example EXACT format: '["file1.txt", "src/main.py"]'
+    """
     try:
         paths = json.loads(paths_json)
     except Exception as e:
@@ -49,7 +55,14 @@ def read_files(paths_json: str) -> dict:
     return results
 
 def write_files(files_json: str) -> dict:
-    """ Safely writes multiple files to disk inside the sandboxed workspace. """
+    """ 
+    Safely writes multiple files to disk inside the sandboxed workspace. 
+    
+    Args:
+        files_json: A JSON-formatted string representing a LIST of dictionary objects.
+        Each dictionary MUST have 'path' and 'content' keys.
+        Example EXACT format: '[{"path": "hello.txt", "content": "print('hi')"}]'
+    """
     try:
         files = json.loads(files_json)
     except Exception as e:
