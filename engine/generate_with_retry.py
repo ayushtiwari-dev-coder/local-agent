@@ -1,7 +1,9 @@
 # FILE: engine/generate_with_retry.py
 import time
+from google import genai
+from google.genai import types
 
-def generate_with_retry(model, gemini_messages, max_attempts: int = 3, status_callback=None) -> any:
+def generate_with_retry(client, model_name, gemini_messages, config, max_attempts: int = 3, status_callback=None) -> any:
     """
     Safely handles content generation with the Gemini model.
     Retries up to `max_attempts` times using exponential backoff starting at a base delay of 2 seconds.
@@ -13,7 +15,11 @@ def generate_with_retry(model, gemini_messages, max_attempts: int = 3, status_ca
     
     for attempt in range(max_attempts):
         try:
-            response = model.generate_content(gemini_messages)
+            response = client.models.generate_content(
+                model=model_name,
+                contents=gemini_messages,
+                config=config
+            )
             if response and response.candidates:
                 return response
             
@@ -49,7 +55,11 @@ def generate_with_retry(model, gemini_messages, max_attempts: int = 3, status_ca
                 
                 # Attempt generation exactly once more
                 try:
-                    response = model.generate_content(gemini_messages)
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=gemini_messages,
+                        config=config
+                    )
                     if response and response.candidates:
                         return response
                     else:

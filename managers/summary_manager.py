@@ -1,7 +1,9 @@
 import threading
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from database.helper import execute_read
 from queries.summary_queries import create_or_update_summary, get_summary_by_conversation
+from engine.thinking_configure import get_thinking_config
 
 def trigger_background_summary(api_key: str, model_name: str, conversation_id: int) -> None:
     """
@@ -58,13 +60,21 @@ def _run_summary_workflow(api_key: str, model_name: str, conversation_id: int) -
     [New Messages]
     {new_text_to_summarize}
     """
-    
     try:
         # Configure and call Gemini strictly inside the background thread
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(model_name=model_name)
-        response = model.generate_content(prompt)
+        client = genai.Client(api_key=api_key)
         
+        config_params = {}
+        thinking_cfg = get_thinking_config(model_name)
+        if thinking_cfg:
+            config_params["thinking_config"] = thinking_cfg
+            
+        config = types.GenerateContentConfig(**config_params)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=config
+        )
         if response.text:
             latest_msg_id = raw_messages[-1]["id"]
             # Save the new compressed summary to the database

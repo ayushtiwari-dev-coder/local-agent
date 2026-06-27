@@ -8,7 +8,7 @@ conn =get_connection()
 
 cursor = conn.execute("""
 SELECT *
-FROM conversations;
+FROM tool_logs;
 """)
 
 rows = cursor.fetchall()
@@ -82,6 +82,7 @@ def run_assistant_cli() -> None:
     try:
         session = start_new_conversation(user_id=user["id"], title="Active Terminal Session")
         conversation_id = session["id"]
+        print(conversation_id)
     except Exception as e:
         print(f"Fatal: Failed to start conversation session: {e}")
         sys.exit(1)
@@ -123,10 +124,28 @@ def run_assistant_cli() -> None:
             break
         except Exception as e:
             print(f"\n❌ Error encountered: {e}\n")
+            raise
 
 
 if __name__ == "__main__":
     run_assistant_cli()
+
+============================================================
+FILE: test.py
+============================================================
+
+from database.connection import DATABASE_PATH, get_connection
+
+print(f"The live database is located exactly here:\n{DATABASE_PATH}\n")
+
+conn = get_connection()
+rows = conn.execute("SELECT id, tool_name, created_at FROM tool_logs ORDER BY id DESC LIMIT 5;").fetchall()
+
+print("The 5 most recent tool logs in this database:")
+for row in rows:
+    print(f"Log ID: {row['id']} | Tool: {row['tool_name']} | Time: {row['created_at']}")
+    
+conn.close()
 
 ============================================================
 FILE: database\connection.py
@@ -370,9 +389,10 @@ FILE: engine\agent_engine.py
 
 # FILE: engine/agent_engine.py
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from tools.registry import get_all_tools
-from engine.loop_protector import check_for_infinite_loop
+from engine.loop_protector import check_for_infinite_loop,_extract_paths
 from engine.handle_permissions import determine_and_execute_tool
 from managers.conversation_manager import (
     compile_llm_context, save_user_message, save_assistant_message, log_api_usage
@@ -380,6 +400,7 @@ from managers.conversation_manager import (
 from managers.summary_manager import trigger_background_summary
 from engine.generate_with_retry import generate_with_retry
 from utils.native_types_helpers import  _to_native_types
+from engine.thinking_configure import get_thinking_config
 
 
 
@@ -388,20 +409,34 @@ class AgentEngine:
         resolved_key = api_key or os.environ.get("GEMINI_API_KEY")
         if not resolved_key:
             raise ValueError("API Key missing. Must pass api_key or set GEMINI_API_KEY environment variable.")
-        genai.configure(api_key=resolved_key)
+        self.client = genai.Client(api_key=resolved_key)
         self.api_key = resolved_key
         self.autonomous = autonomous
         self.model_name = "gemini-3.1-flash-lite"
 
     def _format_context_for_gemini(self, db_messages: list[dict]) -> tuple[str | None, list[dict]]:
         base_instructions = (
-            "You are a highly efficient local development assistant.\n"
-            "To prevent API rate limits (HTTP 429 Errors) and optimize execution speed:\n"
-            "1. You MUST batch multiple file reads or writes into a single tool call. "
-            "Never call 'write_files' or 'read_files' sequentially in separate turns for individual files "
-            "if you can process them together in one single turn.\n"
-            "2. Ensure the JSON arrays you construct for 'files_json' or 'paths_json' contain "
-            "all target files at once."
+            "You are a highly efficient, focused, and concise local development AI assistant.\n"
+            "Your primary goal is to solve the user's request using the available tools while STRICTLY "
+            "minimizing API calls, token usage, and execution time.\n\n"
+            
+            "CRITICAL RULES FOR ALL TOOL USAGE:\n"
+            "1. DO NOT REPEAT SUCCESSFUL ACTIONS: Once a tool executes successfully and achieves the desired result, "
+            "YOU MUST STOP CALLING TOOLS. Do not call the same tool with the exact same arguments again just to be sure. "
+            "Instead, provide a final conversational response to the user to conclude the task.\n"
+            
+            "2. BATCH OPERATIONS (NO SEQUENTIAL SPAMMING): Whenever possible, batch multiple actions into a single tool call. "
+            "If a tool accepts arrays or lists (e.g., reading/writing multiple files, processing multiple database rows), "
+            "process them all in ONE single turn. Never do sequentially what you can do simultaneously.\n"
+            
+            "3. HANDLE ERRORS SMARTLY: If a tool returns an error (e.g., 'File not found', 'Invalid input'), "
+            "DO NOT blindly repeat the exact same request. Analyze the error, adjust your parameters, try a different approach, "
+            "or immediately stop and ask the user for clarification.\n"
+            
+            "4. AVOID UNNECESSARY VERIFICATIONS: Trust the tool's success output. If an action succeeds, do not waste tokens "
+            "calling another tool to 'verify' the work unless the user explicitly requested it.\n"
+            
+            "5. BE CONCISE: Do not waste tokens on long-winded conversational filler. Provide direct, factual, and helpful responses."
         )
         system_instruction = base_instructions
         gemini_messages = []
@@ -428,14 +463,22 @@ class AgentEngine:
         """ Executes the ReAct loop. Saves the turn, compiles local context, manages permissions, and handles execution tracking. """
         save_user_message(conversation_id, user_text)
         db_messages = compile_llm_context(conversation_id)
+
+
         system_instruction, gemini_messages = self._format_context_for_gemini(db_messages)
         
-        model = genai.GenerativeModel(
-            model_name=self.model_name,
-            tools=get_all_tools(),
-            system_instruction=system_instruction
-        )
+        config_params = {
+            "tools": get_all_tools(),
+            "system_instruction": system_instruction,
         
+        "automatic_function_calling":types.AutomaticFunctionCallingConfig(disable=True)
+        }
+        
+        thinking_cfg = get_thinking_config(self.model_name)
+        if thinking_cfg:
+            config_params["thinking_config"] = thinking_cfg
+            
+        config = types.GenerateContentConfig(**config_params)
         tool_call_history = []
         turn_count = 0
         MAX_TURNS = 15
@@ -447,7 +490,13 @@ class AgentEngine:
                 return error_msg
             
             try:
-                response = generate_with_retry(model, gemini_messages, status_callback=status_callback)
+                response = generate_with_retry(
+                    self.client,
+                    self.model_name,
+                    gemini_messages,
+                    config,
+                    status_callback=status_callback
+                )
             except Exception as e:
                 raise RuntimeError(f"Gemini API execution failed: {e}") from e
             
@@ -488,13 +537,14 @@ class AgentEngine:
                 tool_call_history.append({
                     'name': tool_name,
                     'args_json': serialized_args,
-                    'status': status
+                    'status': status,
+                    'paths':_extract_paths(tool_name,tool_args) or set()
                 })
                 
                 # Append tool response for the next model iteration
                 gemini_messages.append(candidate.content)
                 gemini_messages.append({
-                    "role": "user",
+                    "role": "function",
                     "parts": [{
                         "function_response": {
                             "name": tool_name,
@@ -516,8 +566,10 @@ FILE: engine\generate_with_retry.py
 
 # FILE: engine/generate_with_retry.py
 import time
+from google import genai
+from google.genai import types
 
-def generate_with_retry(model, gemini_messages, max_attempts: int = 3, status_callback=None) -> any:
+def generate_with_retry(client, model_name, gemini_messages, config, max_attempts: int = 3, status_callback=None) -> any:
     """
     Safely handles content generation with the Gemini model.
     Retries up to `max_attempts` times using exponential backoff starting at a base delay of 2 seconds.
@@ -529,7 +581,11 @@ def generate_with_retry(model, gemini_messages, max_attempts: int = 3, status_ca
     
     for attempt in range(max_attempts):
         try:
-            response = model.generate_content(gemini_messages)
+            response = client.models.generate_content(
+                model=model_name,
+                contents=gemini_messages,
+                config=config
+            )
             if response and response.candidates:
                 return response
             
@@ -565,7 +621,11 @@ def generate_with_retry(model, gemini_messages, max_attempts: int = 3, status_ca
                 
                 # Attempt generation exactly once more
                 try:
-                    response = model.generate_content(gemini_messages)
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=gemini_messages,
+                        config=config
+                    )
                     if response and response.candidates:
                         return response
                     else:
@@ -602,7 +662,7 @@ def determine_and_execute_tool(
     conversation_id: int,
     autonomous: bool,
     approval_callback=None
-) -> tuple[str, str]:
+    ) -> tuple[str, str]:
     """
     Handles autonomous vs. supervised permission checks, executes the requested 
     tool, and logs the execution output.
@@ -611,6 +671,8 @@ def determine_and_execute_tool(
         tool_output (str): The output of the tool execution or a permission error.
         status (str): "success" or "error" reflecting the execution state.
     """
+    print(f"this is for debugging {autonomous}")
+    autonomous=False
     # 1. Handle Supervised Permission Check
     if not autonomous:
         if approval_callback is None:
@@ -650,51 +712,77 @@ FILE: engine\loop_protector.py
 
 import json
 
+def _extract_paths(tool_name: str, tool_args: dict) -> set[str] | None:
+    """For file tools, pull out the set of file paths being touched, regardless of content."""
+    if tool_name == "write_files":
+        raw = tool_args.get("files_json")
+        try:
+            files = json.loads(raw) if isinstance(raw, str) else raw
+            return {f["path"] for f in files if isinstance(f, dict) and "path" in f}
+        except Exception:
+            return None
+    if tool_name == "read_files":
+        raw = tool_args.get("paths_json")
+        try:
+            paths = json.loads(raw) if isinstance(raw, str) else raw
+            return set(paths) if isinstance(paths, list) else None
+        except Exception:
+            return None
+    return None
+
+
 def check_for_infinite_loop(
-    tool_call_history: list[dict], 
-    tool_name: str, 
-    tool_args: dict
+    tool_call_history: list[dict], tool_name: str, tool_args: dict
 ) -> tuple[bool, str | None, str]:
-    """
-    Checks if the proposed tool execution is stuck in a hallucination or failure loop.
-    
-    Returns:
-        is_looping (bool): True if a loop is detected.
-        error_message (str | None): The formatted error message if True, otherwise None.
-        serialized_args (str): The serialized JSON string of the tool arguments.
-    """
-    # Serialize arguments with sorted keys for consistent hashing/string matching
     serialized_args = json.dumps(tool_args, sort_keys=True)
-    
-    # 1. Count identical calls
+
+    # 1. Exact-arg repeat check (catches identical calls)
     total_identical_calls = sum(
-        1 for call in tool_call_history 
+        1 for call in tool_call_history
         if call['name'] == tool_name and call['args_json'] == serialized_args
     )
-    
-    # 2. Count failed identical calls
     failed_identical_calls = sum(
-        1 for call in tool_call_history 
+        1 for call in tool_call_history
         if call['name'] == tool_name and call['args_json'] == serialized_args and call['status'] == 'error'
     )
-    
-    # Case A: Halting on 3rd attempt of a known failing action
-    if failed_identical_calls >= 2:
-        error_msg = (
-            f"Error: Halting execution. The agent is stuck in an error loop, trying to run "
-            f"'{tool_name}' with identical failing parameters for the 3rd time: {tool_args}."
+    if failed_identical_calls >= 1:
+        return True, f"Error: Halting. '{tool_name}' already failed once with these exact params: {tool_args}.", serialized_args
+    if total_identical_calls >= 1:
+        return True, f"Error: Halting. '{tool_name}' already succeeded once with these exact params: {tool_args}.", serialized_args
+
+    # 2. Path-level repeat check (catches "same file, different content" loops)
+    current_paths = _extract_paths(tool_name, tool_args)
+    if current_paths:
+        same_path_calls = sum(
+            1 for call in tool_call_history
+            if call['name'] == tool_name
+            and (call.get('paths') and call['paths'] & current_paths)
         )
-        return True, error_msg, serialized_args
-    
-    # Case B: Halting on 4th attempt of a known successful action
-    if total_identical_calls >= 3:
-        error_msg = (
-            f"Error: Halting execution. The agent is repeating the exact same successful tool call "
-            f"without making progress: '{tool_name}' with parameters {tool_args}."
-        )
-        return True, error_msg, serialized_args
-    
+        if same_path_calls >= 1:
+            return True, (
+                f"Error: Halting. '{tool_name}' has already touched {current_paths} once this turn. "
+                f"Re-running on the same file(s) with different content is not allowed without explicit instruction."
+            ), serialized_args
+
     return False, None, serialized_args
+
+============================================================
+FILE: engine\thinking_configure.py
+============================================================
+
+# engine/thinking_configure.py
+from google.genai import types
+
+# Gemini 3.x supports thinking_level; 2.5 and earlier do not.
+THINKING_CAPABLE_PREFIX = "gemini-3"
+
+def supports_thinking(model_name: str) -> bool:
+    return model_name.lower().startswith(THINKING_CAPABLE_PREFIX)
+
+def get_thinking_config(model_name: str) -> types.ThinkingConfig | None:
+    if supports_thinking(model_name):
+        return types.ThinkingConfig(thinking_level="high")
+    return None
 
 ============================================================
 FILE: managers\conversation_manager.py
@@ -879,9 +967,11 @@ FILE: managers\summary_manager.py
 ============================================================
 
 import threading
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from database.helper import execute_read
 from queries.summary_queries import create_or_update_summary, get_summary_by_conversation
+from engine.thinking_configure import get_thinking_config
 
 def trigger_background_summary(api_key: str, model_name: str, conversation_id: int) -> None:
     """
@@ -938,13 +1028,21 @@ def _run_summary_workflow(api_key: str, model_name: str, conversation_id: int) -
     [New Messages]
     {new_text_to_summarize}
     """
-    
     try:
         # Configure and call Gemini strictly inside the background thread
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(model_name=model_name)
-        response = model.generate_content(prompt)
+        client = genai.Client(api_key=api_key)
         
+        config_params = {}
+        thinking_cfg = get_thinking_config(model_name)
+        if thinking_cfg:
+            config_params["thinking_config"] = thinking_cfg
+            
+        config = types.GenerateContentConfig(**config_params)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=config
+        )
         if response.text:
             latest_msg_id = raw_messages[-1]["id"]
             # Save the new compressed summary to the database
@@ -1438,6 +1536,70 @@ def get_default_user() -> dict | None:
     return execute_read(query, fetch_one=True)
 
 ============================================================
+FILE: tests\test_context_manager.py
+============================================================
+
+# FILE: tests/test_context_manager.py
+import unittest
+from unittest.mock import patch
+from managers.conversation_manager import _estimate_tokens
+from managers.conversation_manager import compile_llm_context
+
+class TestContextManager(unittest.TestCase):
+    def test_estimate_tokens_with_tiktoken(self):
+        """Ensures tiktoken counts tokens correctly when available."""
+        messages = [
+            {"content": "Hello, how are you?"},
+            {"content": "I am fine, thank you."}
+        ]
+        # Should accurately estimate tokens (approx 10-15 tokens depending on cl100k_base)
+        tokens = _estimate_tokens(messages)
+        self.assertGreater(tokens, 5)
+        self.assertLess(tokens, 20)
+
+    @patch('managers.conversation_manager.tiktoken.get_encoding')
+    def test_estimate_tokens_fallback(self, mock_tiktoken):
+        """Edge Case: If tiktoken is unavailable, fallback character math (len/4) is used."""
+        mock_tiktoken.side_effect = Exception("Offline/Module Not Found")
+        
+        # Total chars: 20 chars + 20 chars = 40 chars. 40 // 4 = 10 tokens
+        messages = [
+            {"content": "A" * 20},
+            {"content": "B" * 20}
+        ]
+        tokens = _estimate_tokens(messages)
+        self.assertEqual(tokens, 10)
+
+    @patch('managers.conversation_manager.get_connection')
+    @patch('managers.conversation_manager._estimate_tokens')
+    def test_compile_llm_context_trimming(self, mock_estimate, mock_conn):
+        """Edge case: Context manager discards index 1 when breaching MAX_CONTEXT_TOKENS."""
+        
+        
+        # Mock database rows containing 3 messages
+        mock_cursor = mock_conn.return_value.execute.return_value
+        mock_cursor.fetchone.return_value = None # No summary exists
+        mock_cursor.fetchall.return_value = [
+            {"role": "user", "content": "Msg 1"},
+            {"role": "assistant", "content": "Msg 2"},
+            {"role": "user", "content": "Msg 3"}
+        ]
+        
+        # Fake token sizes: 1st loop: 1500 tokens (over budget). 2nd loop: 900 tokens (under budget)
+        mock_estimate.side_effect = [1500, 900]
+        
+        # Set max tokens extremely low for the test
+        result = compile_llm_context(conversation_id=1, max_tokens=1000)
+        
+        # Should have trimmed the oldest message (Msg 1)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["content"], "Msg 2")
+        self.assertEqual(result[1]["content"], "Msg 3")
+
+if __name__ == "__main__":
+    unittest.main()
+
+============================================================
 FILE: tests\test_database.py
 ============================================================
 
@@ -1501,6 +1663,319 @@ if __name__ == "__main__":
     run_database_test()
 
 ============================================================
+FILE: tests\test_database_queries.py
+============================================================
+
+# FILE: tests/test_database_queries.py
+import unittest
+import tempfile
+import os
+import sqlite3
+from unittest.mock import patch
+from queries.user_queries import create_user, get_user_by_id
+from database.table_generator import create_tables
+from queries.user_queries import create_user
+from queries.conversation_queries import create_conversation
+from queries.message_queries import create_message
+from queries.user_queries import create_user
+from queries.conversation_queries import get_conversation_by_id
+from queries.task_queries import get_task_by_id
+
+class TestDatabaseQueries(unittest.TestCase):
+    def setUp(self):
+        # Create a blank temporary database file
+        self.temp_db = tempfile.NamedTemporaryFile(delete=False)
+        self.temp_db_path = self.temp_db.name
+        self.temp_db.close()
+        
+        # Patch the DATABASE_PATH so the helper uses our temporary file
+        self.db_patcher = patch('database.connection.DATABASE_PATH', self.temp_db_path)
+        self.db_patcher.start()
+        
+        # Initialize the tables in the temp db
+        
+        create_tables()
+
+    def tearDown(self):
+        self.db_patcher.stop()
+        os.remove(self.temp_db_path)
+
+    def test_create_and_fetch_user(self):
+        """Tests standard creation and retrieval queries."""
+        
+        
+        user = create_user("Test User", "testuser")
+        self.assertEqual(user["username"], "testuser")
+        self.assertIsNotNone(user["id"])
+        
+        fetched = get_user_by_id(user["id"])
+        self.assertEqual(fetched["name"], "Test User")
+
+    def test_user_unique_constraint(self):
+        """Edge Case: Cannot create two users with the identical username."""
+        
+        create_user("User One", "unique_name")
+        with self.assertRaisesRegex(ValueError, "is already taken"):
+            create_user("User Two", "unique_name")
+
+    def test_message_role_constraint(self):
+        """Edge Case: SQLite message insertion throws ValueError if role is invalid."""
+        
+        
+        
+        user = create_user("A", "A")
+        conv = create_conversation(user["id"], "Test Title")
+        
+        with self.assertRaisesRegex(ValueError, "Invalid message role"):
+            create_message(conv["id"], role="hacker", content="Malicious code")
+            
+        # Valid roles should pass
+        msg = create_message(conv["id"], role="user", content="Good payload")
+        self.assertEqual(msg["role"], "user")
+
+    def test_missing_data_exceptions(self):
+        """Ensures get_*_by_id functions raise clean ValueErrors when IDs don't exist."""
+        
+        
+        with self.assertRaises(ValueError):
+            get_conversation_by_id(9999)
+            
+        with self.assertRaises(ValueError):
+            get_task_by_id(9999)
+
+if __name__ == "__main__":
+    unittest.main()
+
+============================================================
+FILE: tests\test_engine_retry.py
+============================================================
+
+# FILE: tests/test_engine_retry.py
+import unittest
+from unittest.mock import patch, MagicMock
+from engine.generate_with_retry import generate_with_retry
+
+class TestEngineRetry(unittest.TestCase):
+    def setUp(self):
+        self.mock_client = MagicMock()
+        self.mock_model_name = "gemini-3.1-flash-lite"
+        self.messages = [{"role": "user", "parts": [{"text": "Hello"}]}]
+        self.mock_config = MagicMock()
+        self.mock_callback = MagicMock()
+
+    @patch('engine.generate_with_retry.time.sleep')
+    def test_success_first_try(self, mock_sleep):
+        """Normal scenario: returns immediately on first success."""
+        mock_response = MagicMock()
+        mock_response.candidates = [MagicMock()]
+        self.mock_client.models.generate_content.return_value = mock_response
+        
+        result = generate_with_retry(
+            self.mock_client, 
+            self.mock_model_name, 
+            self.messages, 
+            self.mock_config, 
+            3, 
+            self.mock_callback
+        )
+        
+        self.assertEqual(result, mock_response)
+        self.assertEqual(self.mock_client.models.generate_content.call_count, 1)
+        mock_sleep.assert_not_called()
+
+    @patch('engine.generate_with_retry.time.sleep')
+    def test_exponential_backoff_transient_errors(self, mock_sleep):
+        """Edge Case: Fails twice, succeeds on third try. Checks exact sleep scaling."""
+        mock_response = MagicMock()
+        mock_response.candidates = [MagicMock()]
+        # 1st: Error, 2nd: Error, 3rd: Success
+        self.mock_client.models.generate_content.side_effect = [
+            Exception("503 Service Unavailable"), 
+            Exception("500 Internal Error"), 
+            mock_response
+        ]
+        
+        result = generate_with_retry(
+            self.mock_client, 
+            self.mock_model_name, 
+            self.messages, 
+            self.mock_config, 
+            3, 
+            self.mock_callback
+        )
+        
+        self.assertEqual(result, mock_response)
+        self.assertEqual(self.mock_client.models.generate_content.call_count, 3)
+        # Attempt 0: sleep(2.0), Attempt 1: sleep(4.0)
+        mock_sleep.assert_any_call(2.0)
+        mock_sleep.assert_any_call(4.0)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    @patch('engine.generate_with_retry.time.sleep')
+    def test_429_quota_error_recovery(self, mock_sleep):
+        """Edge Case: 429 Quota error triggers an immediate 3x base_delay sleep."""
+        mock_response = MagicMock()
+        mock_response.candidates = [MagicMock()]
+        self.mock_client.models.generate_content.side_effect = [
+            Exception("ResourceExhausted: 429 Quota limit exceeded"), 
+            mock_response
+        ]
+        
+        result = generate_with_retry(
+            self.mock_client, 
+            self.mock_model_name, 
+            self.messages, 
+            self.mock_config, 
+            3, 
+            self.mock_callback
+        )
+        
+        self.assertEqual(result, mock_response)
+        # Base delay is 2.0. 3x is 6.0
+        mock_sleep.assert_called_once_with(6.0)
+
+    @patch('engine.generate_with_retry.time.sleep')
+    def test_429_quota_error_fatal(self, mock_sleep):
+        """Edge Case: If 429 Quota fails twice, it crashes safely."""
+        self.mock_client.models.generate_content.side_effect = [
+            Exception("ResourceExhausted: 429 Quota limit exceeded"), 
+            Exception("ResourceExhausted: 429 Quota limit exceeded")
+        ]
+        
+        with self.assertRaisesRegex(RuntimeError, "Daily quota limit has been reached"):
+            generate_with_retry(
+                self.mock_client, 
+                self.mock_model_name, 
+                self.messages, 
+                self.mock_config, 
+                3, 
+                self.mock_callback
+            )
+
+if __name__ == "__main__":
+    unittest.main()
+
+============================================================
+FILE: tests\test_files_tools_edge_cases.py
+============================================================
+
+# FILE: tests/test_file_tools_edge_cases.py
+import unittest
+import os
+import json
+import tempfile
+from unittest.mock import patch
+from tools.file_tools import read_files, write_files
+
+class TestFileToolsEdgeCases(unittest.TestCase):
+    def setUp(self):
+        # Create a safe temp directory to act as the sandbox for the test
+        self.temp_sandbox = tempfile.TemporaryDirectory()
+        self.patcher = patch('tools.file_tools.SANDBOX_ROOT', self.temp_sandbox.name)
+        self.patcher.start()
+
+    def tearDown(self):
+        self.patcher.stop()
+        self.temp_sandbox.cleanup()
+
+    def test_invalid_json_inputs(self):
+        """Edge Case: LLM hallucinates malformed JSON string."""
+        bad_json = '{"path": "file.txt" -- missing brackets'
+        res_read = read_files(bad_json)
+        self.assertIn("error", res_read)
+        self.assertIn("Invalid JSON format", res_read["error"])
+
+    def test_path_traversal_jailbreak(self):
+        """Security: Attempts to read or write to system paths outside workspace."""
+        hacker_payload = json.dumps([{"path": "../../../../../etc/passwd", "content": "hacked"}])
+        res_write = write_files(hacker_payload)
+        
+        # Should block and return error dictionary
+        key = list(res_write.keys())[0]
+        self.assertIn("Error: Path", res_write[key])
+        self.assertIn("is outside the allowed workspace", res_write[key])
+
+    def test_read_files_deduplication(self):
+        """Efficiency: Model requests the exact same file 3 times. Engine reads it only once."""
+        test_file = os.path.join(self.temp_sandbox.name, "dup.txt")
+        with open(test_file, 'w') as f:
+            f.write("test_content")
+
+        payload = json.dumps(["dup.txt", "dup.txt", "dup.txt"])
+        with patch('builtins.open', unittest.mock.mock_open(read_data="test_content")) as m:
+            res = read_files(payload)
+            
+            # Should only contain 1 unique key result
+            self.assertEqual(len(res), 1)
+            # The file should have actually only been opened ONCE
+            m.assert_called_once()
+
+    def test_write_files_deduplication(self):
+        """Efficiency: Model writes overlapping files. Only the last payload is saved."""
+        payload = json.dumps([
+            {"path": "file1.txt", "content": "old_data"},
+            {"path": "file1.txt", "content": "latest_data"}
+        ])
+        res = write_files(payload)
+        
+        # Read back to ensure only "latest_data" exists
+        written_file = os.path.join(self.temp_sandbox.name, "file1.txt")
+        with open(written_file, "r") as f:
+            data = f.read()
+        self.assertEqual(data, "latest_data")
+
+if __name__ == "__main__":
+    unittest.main()
+
+============================================================
+FILE: tests\test_user_manager.py
+============================================================
+
+# FILE: tests/test_user_manager.py
+import unittest
+from unittest.mock import patch
+from managers.user_manager import register_user
+
+class TestUserManager(unittest.TestCase):
+    @patch('managers.user_manager.create_user')
+    def test_register_user_success(self, mock_create):
+        """Verifies valid names and usernames pass constraints and are cleaned."""
+        mock_create.return_value = {"id": 1, "name": "John_Doe", "username": "johndoe"}
+        
+        # Display name must contain no spaces to pass the whitelist
+        user = register_user(" John_Doe ", "JohnDoe")
+        
+        mock_create.assert_called_once_with("John_Doe", "johndoe")
+        self.assertEqual(user["username"], "johndoe")
+
+    def test_register_user_length_limits(self):
+        """Edge Case: Fails if name or username is empty or exceeds 25 chars."""
+        with self.assertRaisesRegex(ValueError, "must be between 1 and 25"):
+            register_user("", "valid_user")
+            
+        with self.assertRaisesRegex(ValueError, "must be between 1 and 25"):
+            register_user("valid_name", "")
+            
+        with self.assertRaisesRegex(ValueError, "must be between 1 and 25"):
+            register_user("A" * 26, "valid_user")
+
+    def test_register_user_invalid_characters(self):
+        """Edge Case: Whitelist validation blocks special characters and spaces in username."""
+        invalid_names = ["Ayush@123", "Ayush!", "Ayush#"]
+        for name in invalid_names:
+            with self.assertRaisesRegex(ValueError, "Name contains invalid characters"):
+                register_user(name, "valid_user")
+
+        invalid_usernames = ["ayush tiwari", "ayush@tiwari", "ayush/tiwari"]
+        for uname in invalid_usernames:
+            with self.assertRaisesRegex(ValueError, "Username contains invalid characters"):
+                # Use "Valid_Name" (with underscore) so the username validation block is reached
+                register_user("Valid_Name", uname)
+
+if __name__ == "__main__":
+    unittest.main()
+
+============================================================
 FILE: tests\__init__.py
 ============================================================
 
@@ -1510,8 +1985,9 @@ FILE: tests\__init__.py
 FILE: tools\file_tools.py
 ============================================================
 
+# FILE: tools/file_tools.py
 import os
-import json  # Import json to parse inputs
+import json
 
 SANDBOX_ROOT = os.path.abspath(
     os.path.join(os.path.expanduser("~"), ".local_workflow_agent", "workspace")
@@ -1525,30 +2001,32 @@ def _resolve_safe_path(path: str) -> str | None:
     return full_path
 
 def read_files(paths_json: str) -> dict:
-    """
-    Safely reads multiple files from the sandboxed workspace in a single turn.
-
-    Args:
-        paths_json: A JSON string representing a list of file paths to read.
-                    Example: '["file1.txt", "subfolder/file2.py"]'
-    """
+    """ Safely reads multiple files from the sandboxed workspace in a single turn. """
     try:
         paths = json.loads(paths_json)
     except Exception as e:
         return {"error": f"Invalid JSON format for paths_json: {e}"}
+    
+    if not isinstance(paths, list):
+        return {"error": "Expected a JSON list of paths."}
+
+    # Deduplicate paths to prevent redundant read actions
+    unique_paths = []
+    for p in paths:
+        if p and p not in unique_paths:
+            unique_paths.append(p)
 
     results = {}
-    for path in paths:
+    for path in unique_paths:
         safe_path = _resolve_safe_path(path)
         if safe_path is None:
             results[path] = f"Error: Path '{path}' is outside the allowed workspace."
             continue
-
         try:
             if not os.path.exists(safe_path):
-                results[path] = f"Error: File not found."
+                results[path] = "Error: File not found."
             elif os.path.isdir(safe_path):
-                results[path] = f"Error: Path is a directory, not a file."
+                results[path] = "Error: Path is a directory, not a file."
             else:
                 with open(safe_path, 'r', encoding='utf-8', errors='replace') as f:
                     results[path] = f.read()
@@ -1558,41 +2036,42 @@ def read_files(paths_json: str) -> dict:
     return results
 
 def write_files(files_json: str) -> dict:
-    """
-    Safely writes multiple files to disk inside the sandboxed workspace.
-
-    Args:
-        files_json: A JSON string representing a list of file dictionaries containing 'path' and 'content'.
-                    Example: '[{"path": "notes.txt", "content": "My notes"}, {"path": "script.py", "content": "print(1)"}]'
-    """
+    """ Safely writes multiple files to disk inside the sandboxed workspace. """
     try:
         files = json.loads(files_json)
     except Exception as e:
         return {"error": f"Invalid JSON format for files_json: {e}"}
 
-    results = {}
+    if not isinstance(files, list):
+        return {"error": "Expected a JSON list of file objects."}
+
+    # Deduplicate files by tracking unique paths.
+    # If duplicates are passed, only write the latest content for each path.
+    unique_files = {}
     for file_info in files:
+        if not isinstance(file_info, dict):
+            continue
         path = file_info.get("path")
         content = file_info.get("content", "")
-        if not path:
-            continue
+        if path:
+            unique_files[path] = content
 
+    results = {}
+    for path, content in unique_files.items():
         safe_path = _resolve_safe_path(path)
         if safe_path is None:
             results[path] = f"Error: Path '{path}' is outside the allowed workspace."
             continue
-
         try:
             parent_dir = os.path.dirname(safe_path)
             if parent_dir and not os.path.exists(parent_dir):
                 os.makedirs(parent_dir, exist_ok=True)
-
             with open(safe_path, 'w', encoding='utf-8') as f:
                 f.write(content)
-            results[path] = f"Success: File written successfully."
+            results[path] = "Success: File written successfully."
         except Exception as e:
             results[path] = f"Error: Failed to write file: {e}"
-
+            
     return results
 
 ============================================================

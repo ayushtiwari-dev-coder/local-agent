@@ -8,7 +8,7 @@ def determine_and_execute_tool(
     conversation_id: int,
     autonomous: bool,
     approval_callback=None
-) -> tuple[str, str]:
+    ) -> tuple[str, str]:
     """
     Handles autonomous vs. supervised permission checks, executes the requested 
     tool, and logs the execution output.
@@ -17,6 +17,7 @@ def determine_and_execute_tool(
         tool_output (str): The output of the tool execution or a permission error.
         status (str): "success" or "error" reflecting the execution state.
     """
+    
     # 1. Handle Supervised Permission Check
     if not autonomous:
         if approval_callback is None:

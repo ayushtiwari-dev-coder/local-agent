@@ -58,6 +58,7 @@ def run_assistant_cli() -> None:
     try:
         session = start_new_conversation(user_id=user["id"], title="Active Terminal Session")
         conversation_id = session["id"]
+        print(conversation_id)
     except Exception as e:
         print(f"Fatal: Failed to start conversation session: {e}")
         sys.exit(1)
@@ -99,6 +100,7 @@ def run_assistant_cli() -> None:
             break
         except Exception as e:
             print(f"\n❌ Error encountered: {e}\n")
+            raise
 
 
 if __name__ == "__main__":
