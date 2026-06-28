@@ -13,21 +13,21 @@ def _resolve_safe_path(path: str) -> str | None:
         return None
     return full_path
 
-def read_files(paths_json: str) -> dict:
-    """ 
-    Safely reads multiple files from the sandboxed workspace in a single turn. 
-    
-    Args:
-        paths_json: A JSON-formatted string representing a LIST of file paths.
-        Example EXACT format: '["file1.txt", "src/main.py"]'
+def read_files(paths: list[str]) -> dict:
     """
-    try:
-        paths = json.loads(paths_json)
-    except Exception as e:
-        return {"error": f"Invalid JSON format for paths_json: {e}"}
-    
+    Safely reads multiple files from the sandboxed workspace in a single turn.
+
+    Args:
+        paths: A list of file paths, e.g. ["file1.txt", "src/main.py"]
+    """
     if not isinstance(paths, list):
-        return {"error": "Expected a JSON list of paths."}
+        return {"error": "Expected a list of paths."}
+    # everything below this is unchanged — no json.loads needed
+    unique_paths = []
+    for p in paths:
+        if p and p not in unique_paths:
+            unique_paths.append(p)
+    ...
 
     # Deduplicate paths to prevent redundant read actions
     unique_paths = []
@@ -54,25 +54,17 @@ def read_files(paths_json: str) -> dict:
             
     return results
 
-def write_files(files_json: str) -> dict:
-    """ 
-    Safely writes multiple files to disk inside the sandboxed workspace. 
-    
-    Args:
-        files_json: A JSON-formatted string representing a LIST of dictionary objects.
-        Each dictionary MUST have 'path' and 'content' keys.
-        Example EXACT format: '[{"path": "hello.txt", "content": "print('hi')"}]'
+def write_files(files: list[dict]) -> dict:
     """
-    try:
-        files = json.loads(files_json)
-    except Exception as e:
-        return {"error": f"Invalid JSON format for files_json: {e}"}
+    Safely writes multiple files to disk inside the sandboxed workspace.
 
+    Args:
+        files: A list of objects, each with 'path' and 'content' keys.
+               e.g. [{"path": "hello.txt", "content": "print('hi')"}]
+    """
     if not isinstance(files, list):
-        return {"error": "Expected a JSON list of file objects."}
-
-    # Deduplicate files by tracking unique paths.
-    # If duplicates are passed, only write the latest content for each path.
+        return {"error": "Expected a list of file objects."}
+    
     unique_files = {}
     for file_info in files:
         if not isinstance(file_info, dict):

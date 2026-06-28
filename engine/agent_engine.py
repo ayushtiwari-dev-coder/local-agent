@@ -61,35 +61,35 @@ class AgentEngine:
             # 3. Check for tool calls
             if response.tool_calls:
                 turn_count += 1
-                
-                # We currently process one tool call at a time per turn
-                tool_call = response.tool_calls[0]
-                tool_name = tool_call.name
-                tool_args = tool_call.args
-                serialized_args = json.dumps(tool_args, sort_keys=True)
 
-                # Check for infinite loops
-                is_looping, loop_error, _ = check_for_infinite_loop(tool_call_history, tool_name, tool_args)
-                if is_looping:
-                    save_assistant_message(conversation_id, loop_error)
-                    return loop_error
+                for tool_call in response.tool_calls:
+                    tool_name = tool_call.name
+                    tool_args = tool_call.args
+                    serialized_args = json.dumps(tool_args, sort_keys=True)
 
-                # Execute tool
-                tool_output, status = determine_and_execute_tool(
-                    tool_name, tool_args, conversation_id, self.autonomous, approval_callback
-                )
+                    # Check for infinite loops
+                    is_looping, loop_error, _ = check_for_infinite_loop(tool_call_history, tool_name, tool_args)
+                    if is_looping:
+                        save_assistant_message(conversation_id, loop_error)
+                        return loop_error
 
-                # Record execution log in local memory
-                tool_call_history.append({
-                    'name': tool_name,
-                    'args_json': serialized_args,
-                    'status': status,
-                    'paths': _extract_paths(tool_name, tool_args) or set()
-                })
+                    # Execute tool
+                    tool_output, status = determine_and_execute_tool(
+                        tool_name, tool_args, conversation_id, self.autonomous, approval_callback
+                    )
 
-                # Append clean standard dicts for the next LLM iteration
-                db_messages.append({"role": "assistant", "tool_calls": [tool_call]})
-                db_messages.append({"role": "tool", "tool_name": tool_name, "content": tool_output})
+                    # Record execution log in local memory
+                    tool_call_history.append({
+                        'name': tool_name,
+                        'args_json': serialized_args,
+                        'status': status,
+                        'paths': _extract_paths(tool_name, tool_args) or set()
+                    })
+
+                    # Append clean standard dicts for the next LLM iteration
+                    db_messages.append({"role": "assistant", "tool_calls": [tool_call]})
+                    db_messages.append({"role": "tool", "tool_name": tool_name, "content": tool_output})
+
                 continue
             
             else:

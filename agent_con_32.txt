@@ -1,0 +1,2378 @@
+============================================================
+FILE: database_test.py
+============================================================
+
+from database.connection import get_connection
+
+conn =get_connection()
+
+cursor = conn.execute("""
+SELECT *
+FROM tool_logs;
+""")
+
+rows = cursor.fetchall()
+
+for row in rows:
+    print(dict(row))
+
+conn.close()
+
+============================================================
+FILE: main.py
+============================================================
+
+# FILE: test_main.py
+
+import sys
+# Import the path helper first
+from utils.path_helper import load_env_file
+
+# Load environment variables (API keys) immediately on startup
+load_env_file()
+
+# Absolute imports from our packages
+from database.table_generator import create_tables
+from managers.user_manager import get_active_user, register_user
+from managers.conversation_manager import start_new_conversation
+
+# --> USE THE NEW TEST ENGINE <--
+from engine.agent_engine import AgentEngine
+
+def cli_tool_approval_callback(tool_name: str, arguments: dict) -> bool:
+    """ Passed to the Engine to handle terminal user authorization. """
+    print(f"\n 📝 [AI Requests Tool Run] -> {tool_name}")
+    print(f"    Parameters: {arguments}")
+    choice = input("👉 Allow this action? (y/n): ").strip().lower()
+    return choice == "y"
+
+def cli_status_callback(message: str) -> None:
+    """Prints system-level status and retry updates to the console."""
+    print(f"⚙️ [System Status] {message}")
+
+def run_assistant_cli() -> None:
+    """ The main CLI loop that boots the system. """
+    print("Initializing local assistant database...")
+    try:
+        create_tables()
+    except Exception as e:
+        print(f"Fatal: Database setup failed: {e}")
+        sys.exit(1)
+
+    # Verify or Register Active User
+    user = get_active_user()
+    if user is None:
+        print("\n--- Welcome to Local Workflow Agent! ---")
+        print("Let's set up your local profile first.")
+        while True:
+            try:
+                name = input("Enter your Display Name (e.g. Ayush): ")
+                username = input("Enter your unique Username (e.g. ayush_tiwari): ")
+                user = register_user(name, username)
+                print(f"\nSuccess: Profile created for {user['name']} (@{user['username']})!")
+                break
+            except ValueError as e:
+                print(f"Validation Error: {e}. Please try again.\n")
+
+    # Start or load a central Conversation Session
+    try:
+        session = start_new_conversation(user_id=user["id"], title="Active Terminal Session")
+        conversation_id = session["id"]
+    except Exception as e:
+        print(f"Fatal: Failed to start conversation session: {e}")
+        sys.exit(1)
+
+    # Instantiate our NEW Agent Engine
+    try:
+        # Default provider is Gemini, but architecture supports others now
+        engine = AgentEngine(provider_name="gemini", autonomous=False)
+    except Exception as e:
+        print(f"Initialization Error: {e}")
+        print("Please make sure you have set the GEMINI_API_KEY inside your .env file.")
+        sys.exit(1)
+
+    print(f"\n=== Hello, {user['name']}! Your new abstract local-first agent is ready. ===")
+    print("Type 'exit' or 'quit' to close the session.\n")
+
+    # The Interactive Chat Loop
+    while True:
+        try:
+            user_input = input("👤 You: ").strip()
+            if not user_input:
+                continue
+
+            if user_input.lower() in {"exit", "quit"}:
+                print("Goodbye!")
+                break
+
+            print("🤖 Assistant is thinking...")
+            response_text = engine.send_message(
+                conversation_id=conversation_id, 
+                user_text=user_input, 
+                approval_callback=cli_tool_approval_callback, 
+                status_callback=cli_status_callback
+            )
+            print(f"\n 🤖 Assistant: {response_text}\n")
+            
+        except KeyboardInterrupt:
+            print("\nSession interrupted. Goodbye!")
+            break
+        except Exception as e:
+            print(f"\n ❌ Error encountered: {e}\n")
+            raise
+
+if __name__ == "__main__":
+    run_assistant_cli()
+
+============================================================
+FILE: test.py
+============================================================
+
+from database.connection import DATABASE_PATH, get_connection
+
+print(f"The live database is located exactly here:\n{DATABASE_PATH}\n")
+
+conn = get_connection()
+rows = conn.execute("SELECT id, tool_name, created_at FROM tool_logs ORDER BY id DESC LIMIT 5;").fetchall()
+
+print("The 5 most recent tool logs in this database:")
+for row in rows:
+    print(f"Log ID: {row['id']} | Tool: {row['tool_name']} | Time: {row['created_at']}")
+    
+conn.close()
+
+============================================================
+FILE: database\connection.py
+============================================================
+
+import os
+import sqlite3
+
+# 1. Dynamically locate the user's home directory (works on Windows, Mac, and Linux)
+HOME_DIR = os.path.expanduser("~")
+
+# 2. Define the hidden folder path inside the home directory
+APP_DIR = os.path.join(HOME_DIR, ".local_workflow_agent")
+
+# 3. Path to the database file inside the hidden folder
+DATABASE_PATH = os.path.join(APP_DIR, "assistant.db")
+
+def get_connection() -> sqlite3.Connection:
+    """
+    Creates and returns a connection to the SQLite database.
+    Ensures the central hidden directory exists before connecting.
+    """
+    try:
+        # Create the hidden folder if it does not exist yet
+        os.makedirs(APP_DIR, exist_ok=True)
+        
+        # Connect to the central database file
+        conn = sqlite3.connect(DATABASE_PATH)
+        
+        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.row_factory = sqlite3.Row
+        
+        return conn
+        
+    except (sqlite3.Error, OSError) as e:
+        raise RuntimeError(f"Failed to connect to database: {e}") from e
+
+============================================================
+FILE: database\helper.py
+============================================================
+
+import sqlite3
+from database.connection import get_connection
+
+def execute_read(query: str, params: tuple = (), fetch_one: bool = False) -> any:
+    """
+    Executes a SELECT query, manages the connection lifecycle, 
+    and automatically converts rows to dictionaries.
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.execute(query, params)
+        if fetch_one:
+            row = cursor.fetchone()
+            return dict(row) if row is not None else None
+        else:
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+            
+    except sqlite3.Error as e:
+        raise RuntimeError(f"Database read error: {e}") from e
+    finally:
+        conn.close()
+
+
+def execute_write(query: str, params: tuple = ()) -> int:
+    """
+    Executes an INSERT, UPDATE, or DELETE query within a transaction context.
+    Returns:
+        - lastrowid (for INSERTs)
+        - rowcount (number of modified rows for UPDATE/DELETE)
+    """
+    conn = get_connection()
+    try:
+        with conn:
+            cursor = conn.execute(query, params)
+            # If it was an INSERT, return the newly created row's ID
+            if cursor.lastrowid and cursor.lastrowid > 0:
+                return cursor.lastrowid
+            # For UPDATE/DELETE, return the count of modified rows
+            return cursor.rowcount
+            
+    except sqlite3.Error as e:
+        # We let the raw exception propagate so specific query files 
+        # can catch specialized errors (like sqlite3.IntegrityError)
+        raise e
+    finally:
+        conn.close()
+
+============================================================
+FILE: database\table_generator.py
+============================================================
+
+import sqlite3
+from database.connection import get_connection
+
+def create_tables() -> None:
+    """
+    Creates all foundational database tables if they do not exist.
+    Raises RuntimeError if table creation fails.
+    """
+    # SQL commands to build our schemas
+    queries = [
+        # 1. Users Table
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            username TEXT NOT NULL UNIQUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+        
+        # 2. Projects Table
+        """
+        CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+        
+        # 3. Tasks Table
+        """
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        """,
+        
+        # 4. Conversations Table
+        """
+        CREATE TABLE IF NOT EXISTS conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            title TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+        );
+        """,
+        
+        # 5. Messages Table
+        """
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER NOT NULL,
+            role TEXT NOT NULL, -- 'system', 'user', or 'assistant'
+            content TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+        );
+        """,
+        
+        # 6. Memories Table
+        """
+        CREATE TABLE IF NOT EXISTS memories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'general',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+        
+        # 7. Model Usage Table
+        """
+        CREATE TABLE IF NOT EXISTS model_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER,
+            model_name TEXT NOT NULL,
+            prompt_tokens INTEGER NOT NULL,
+            completion_tokens INTEGER NOT NULL,
+            total_tokens INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+        );
+        """,
+        
+        # 8. Tool Execution Logs Table
+        """
+        CREATE TABLE IF NOT EXISTS tool_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER,
+            tool_name TEXT NOT NULL,
+            arguments TEXT NOT NULL, -- Stored as a JSON-formatted string
+            output TEXT,
+            status TEXT NOT NULL, -- 'success' or 'error'
+            error_message TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+        );
+        """,
+
+        # 9. Summaries Table
+        """
+        CREATE TABLE IF NOT EXISTS summaries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER NOT NULL,
+            summary_text TEXT NOT NULL,
+            last_summarized_message_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+        );
+        """
+    ]
+
+    try:
+        # Obtain connection
+        conn = get_connection()
+        
+        # Use a transaction context. If any query fails, all changes are rolled back.
+        with conn:
+            for query in queries:
+                conn.execute(query)
+                
+    except (sqlite3.Error, RuntimeError) as e:
+        # Wrap database issues in a clean runtime exception for upper layers to handle
+        raise RuntimeError(f"Database initialization failed: {e}") from e
+    finally:
+        # Ensure the connection is always closed, even on failure
+        if 'conn' in locals():
+            conn.close()
+
+============================================================
+FILE: database\__init__.py
+============================================================
+
+
+
+============================================================
+FILE: engine\agent_engine.py
+============================================================
+
+# FILE: engine/test_engine.py
+
+import os
+import json
+from tools.registry import get_all_tools
+from engine.loop_protector import check_for_infinite_loop, _extract_paths
+from engine.handle_permissions import determine_and_execute_tool
+from managers.conversation_manager import (
+    compile_llm_context, save_user_message, save_assistant_message, log_api_usage
+)
+from managers.summary_manager import trigger_background_summary
+from llm.provider_factory import LLMFactory
+
+class AgentEngine:
+    def __init__(self, provider_name: str = "gemini", model_name: str = "gemini-3.1-flash-lite", api_key: str | None = None, autonomous: bool = False):
+        resolved_key = api_key or os.environ.get("GEMINI_API_KEY")
+        if not resolved_key:
+            raise ValueError(f"API Key missing. Must pass api_key or set API key environment variable for {provider_name}.")
+        
+        # Instantiate the provider through our new factory!
+        self.provider = LLMFactory.get_provider(provider_name, resolved_key, model_name)
+        self.autonomous = autonomous
+
+    def _trigger_summary_safely(self, conversation_id: int) -> None:
+        try:
+            trigger_background_summary(self.provider.api_key, self.provider.model_name, conversation_id)
+        except Exception:
+            pass
+
+    def send_message(self, conversation_id: int, user_text: str, approval_callback=None, status_callback=None) -> str:
+        """Executes the ReAct loop using the abstract LLM provider."""
+        
+        save_user_message(conversation_id, user_text)
+        
+        # compile_llm_context returns standard dicts: [{"role": "user", "content": "hi"}]
+        db_messages = compile_llm_context(conversation_id)
+
+        tool_call_history = []
+        turn_count = 0
+        MAX_TURNS = 15
+
+        while True:
+            if turn_count >= MAX_TURNS:
+                error_msg = f"Error: Maximum tool execution limit ({MAX_TURNS} turns) reached."
+                save_assistant_message(conversation_id, error_msg)
+                return error_msg
+
+            try:
+                # 1. Generate content (Provider handles all formatting and retries natively)
+                response = self.provider.generate_content(
+                    messages=db_messages,
+                    tools=get_all_tools(),
+                    status_callback=status_callback
+                )
+            except Exception as e:
+                raise RuntimeError(f"LLM API execution failed: {e}") from e
+
+            # 2. Log token usage
+            log_api_usage(conversation_id, self.provider.model_name, response.prompt_tokens, response.completion_tokens)
+
+            # 3. Check for tool calls
+            if response.tool_calls:
+                turn_count += 1
+                
+                # We currently process one tool call at a time per turn
+                tool_call = response.tool_calls[0]
+                tool_name = tool_call.name
+                tool_args = tool_call.args
+                serialized_args = json.dumps(tool_args, sort_keys=True)
+
+                # Check for infinite loops
+                is_looping, loop_error, _ = check_for_infinite_loop(tool_call_history, tool_name, tool_args)
+                if is_looping:
+                    save_assistant_message(conversation_id, loop_error)
+                    return loop_error
+
+                # Execute tool
+                tool_output, status = determine_and_execute_tool(
+                    tool_name, tool_args, conversation_id, self.autonomous, approval_callback
+                )
+
+                # Record execution log in local memory
+                tool_call_history.append({
+                    'name': tool_name,
+                    'args_json': serialized_args,
+                    'status': status,
+                    'paths': _extract_paths(tool_name, tool_args) or set()
+                })
+
+                # Append clean standard dicts for the next LLM iteration
+                db_messages.append({"role": "assistant", "tool_calls": [tool_call]})
+                db_messages.append({"role": "tool", "tool_name": tool_name, "content": tool_output})
+                continue
+            
+            else:
+                # 4. Final text response received
+                final_text = response.text if response.text else ""
+                save_assistant_message(conversation_id, final_text)
+                self._trigger_summary_safely(conversation_id)
+                return final_text
+
+============================================================
+FILE: engine\context_formatter.py
+============================================================
+
+# FILE: engine/context_formatter.py
+
+def format_context(db_messages: list[dict]) -> tuple[str, list[dict]]:
+    """
+    Extracts base instructions, handles system summaries, and formats the raw database 
+    messages into a clean, universal standard that any LLM provider can easily map.
+    """
+    base_instructions = (
+        "You are a highly efficient, focused, and concise local development AI assistant.\n"
+        "Your primary goal is to solve the user's request using the available tools while STRICTLY "
+        "minimizing API calls, token usage, and execution time.\n\n"
+        "CRITICAL RULES FOR ALL TOOL USAGE:\n"
+        "1. DO NOT REPEAT SUCCESSFUL ACTIONS: Once a tool executes successfully and achieves the desired result, "
+        "YOU MUST STOP CALLING TOOLS. Do not call the same tool with the exact same arguments again just to be sure. "
+        "Instead, provide a final conversational response to the user to conclude the task.\n"
+        "2. BATCH OPERATIONS (NO SEQUENTIAL SPAMMING): Whenever possible, batch multiple actions into a single tool call. "
+        "If a tool accepts arrays or lists (e.g., reading/writing multiple files, processing multiple database rows), "
+        "process them all in ONE single turn. Never do sequentially what you can do simultaneously.\n"
+        "3. HANDLE ERRORS SMARTLY: If a tool returns an error (e.g., 'File not found', 'Invalid input'), "
+        "DO NOT blindly repeat the exact same request. Analyze the error, adjust your parameters, try a different approach, "
+        "or immediately stop and ask the user for clarification.\n"
+        "4. AVOID UNNECESSARY VERIFICATIONS: Trust the tool's success output. If an action succeeds, do not waste tokens "
+        "calling another tool to 'verify' the work unless the user explicitly requested it.\n"
+        "5. BE CONCISE: Do not waste tokens on long-winded conversational filler. Provide direct, factual, and helpful responses."
+    )
+
+    system_instruction = base_instructions
+    standardized_messages = []
+
+    for msg in db_messages:
+        role = msg.get("role")
+        content = msg.get("content", "")
+
+        if role == "system":
+            system_instruction += f"\n\n[Previous Conversation Summary]\n{content}"
+        else:
+            # Create a clean universal dictionary for user, assistant, or tool roles
+            clean_msg = {
+                "role": role,
+                "content": content
+            }
+            # Carry over any tool data if it exists
+            if "tool_name" in msg:
+                clean_msg["tool_name"] = msg["tool_name"]
+            if "tool_calls" in msg:
+                clean_msg["tool_calls"] = msg["tool_calls"]
+                
+            standardized_messages.append(clean_msg)
+
+    return system_instruction, standardized_messages
+
+============================================================
+FILE: engine\generate_with_retry.py
+============================================================
+
+# FILE: engine/generate_with_retry.py
+import time
+
+def generate_with_retry(
+    request_fn, 
+    is_quota_error_fn, 
+    status_callback=None, 
+    max_attempts: int = 3,
+    base_delay: float = 2.0
+) -> any:
+    """
+    Generic template to safely handle content generation and API requests for any LLM provider.
+    Handles rate-limits (429s), transient exceptions, empty responses, and exponential backoff
+    while updating the system console via status callbacks.
+    """
+    for attempt in range(max_attempts):
+        try:
+            # 1. Execute the actual provider request
+            response = request_fn()
+            
+            if response:
+                return response
+                
+            # Handle empty responses
+            if attempt < max_attempts - 1:
+                delay = base_delay * (2 ** attempt)
+                if status_callback:
+                    status_callback(
+                        f"Encountered empty response. "
+                        f"Retrying execution loop in {delay:.1f} seconds (Attempt {attempt + 1}/{max_attempts})..."
+                    )
+                time.sleep(delay)
+                
+        except Exception as e:
+            # 2. Check if the error is a 429 rate limit
+            is_quota_error = is_quota_error_fn(e)
+            
+            if is_quota_error:
+                quota_delay = base_delay * 3.0
+                if status_callback:
+                    status_callback(
+                        f"Encountered a rate limit or quota error (429) inside this workflow. "
+                        f"Waiting {quota_delay:.1f} seconds before initiating recovery retry..."
+                    )
+                time.sleep(quota_delay)
+                
+                # Attempt generation exactly once more
+                try:
+                    response = request_response = f_run_attempt = request_fn()
+                    if response:
+                        return response
+                    else:
+                        raise RuntimeError("Daily quota limit has been reached. Stopping the request at this moment.")
+                except Exception as retry_err:
+                    raise RuntimeError("Daily quota limit has been reached. Stopping the request at this moment.") from retry_err
+            
+            # For other transient exceptions, check if we have reached the limit
+            if attempt == max_attempts - 1:
+                raise e
+                
+            delay = base_delay * (2 ** attempt)
+            exc_str = str(e)
+            if status_callback:
+                status_callback(
+                    f"Encountered an error inside this workflow: '{exc_str}'. "
+                    f"Retrying execution loop in {delay:.1f} seconds (Attempt {attempt + 1}/{max_attempts})...."
+                )
+            time.sleep(delay)
+            
+    raise RuntimeError("No response returned after multiple retries.")
+
+============================================================
+FILE: engine\handle_permissions.py
+============================================================
+
+import json
+from tools.registry import execute_tool
+from managers.conversation_manager import log_tool_run
+
+def determine_and_execute_tool(
+    tool_name: str,
+    tool_args: dict,
+    conversation_id: int,
+    autonomous: bool,
+    approval_callback=None
+    ) -> tuple[str, str]:
+    """
+    Handles autonomous vs. supervised permission checks, executes the requested 
+    tool, and logs the execution output.
+    
+    Returns:
+        tool_output (str): The output of the tool execution or a permission error.
+        status (str): "success" or "error" reflecting the execution state.
+    """
+    
+    # 1. Handle Supervised Permission Check
+    if not autonomous:
+        if approval_callback is None:
+            raise ValueError("Engine is in supervised mode, but no approval_callback was provided.")
+        
+        approved = approval_callback(tool_name, tool_args)
+        if not approved:
+            tool_output = f"Error: Permission Denied. User refused execution of '{tool_name}'."
+            log_tool_run(
+                conversation_id, tool_name,
+                json.dumps(tool_args), "error", error_message="User denied permission."
+            )
+            return tool_output, "error"
+            
+    # 2. Execute the Tool (if autonomous, or if approved)
+    tool_output = execute_tool(tool_name, tool_args)
+    
+    # 3. Check for Errors in the Output
+    if isinstance(tool_output, dict):
+        has_error = any("Error:" in str(v) for v in tool_output.values())
+    else:
+        has_error = "Error:" in str(tool_output)
+        
+    status = "error" if has_error else "success"
+    
+    # 4. Log the Execution Details
+    log_tool_run(
+        conversation_id, tool_name, 
+        json.dumps(tool_args), status, output=tool_output
+    )
+    
+    return tool_output, status
+
+============================================================
+FILE: engine\loop_protector.py
+============================================================
+
+import json
+
+def _extract_paths(tool_name: str, tool_args: dict) -> set[str] | None:
+    """For file tools, pull out the set of file paths being touched, regardless of content."""
+    if tool_name == "write_files":
+        raw = tool_args.get("files_json")
+        try:
+            files = json.loads(raw) if isinstance(raw, str) else raw
+            return {f["path"] for f in files if isinstance(f, dict) and "path" in f}
+        except Exception:
+            return None
+    if tool_name == "read_files":
+        raw = tool_args.get("paths_json")
+        try:
+            paths = json.loads(raw) if isinstance(raw, str) else raw
+            return set(paths) if isinstance(paths, list) else None
+        except Exception:
+            return None
+    return None
+
+
+def check_for_infinite_loop(
+    tool_call_history: list[dict], tool_name: str, tool_args: dict
+) -> tuple[bool, str | None, str]:
+    serialized_args = json.dumps(tool_args, sort_keys=True)
+    
+    # 1. Exact-arg repeat check (catches identical calls - REAL infinite loops)
+    total_identical_calls = 0
+    failed_identical_calls = 0
+    
+    for call in tool_call_history:
+        if call['name'] == tool_name and call['args_json'] == serialized_args:
+            total_identical_calls += 1
+            if call.get('status') == 'error':
+                failed_identical_calls += 1
+
+    # Halt if it keeps trying the exact same failed action blindly
+    if failed_identical_calls >= 1:
+        return True, f"Error: Halting. '{tool_name}' already failed once with these exact params: {tool_args}.", serialized_args
+        
+    # Halt if it keeps repeating an action that already succeeded (wasting tokens)
+    if total_identical_calls >= 1:
+        return True, f"Error: Halting. '{tool_name}' already succeeded once with these exact params: {tool_args}.", serialized_args
+    
+    return False, None, serialized_args
+
+============================================================
+FILE: engine\thinking_configure.py
+============================================================
+
+# engine/thinking_configure.py
+from google.genai import types
+
+# Gemini 3.x supports thinking_level; 2.5 and earlier do not.
+THINKING_CAPABLE_PREFIX = "gemini-3"
+
+def supports_thinking(model_name: str) -> bool:
+    return model_name.lower().startswith(THINKING_CAPABLE_PREFIX)
+
+def get_thinking_config(model_name: str) -> types.ThinkingConfig | None:
+    if supports_thinking(model_name):
+        return types.ThinkingConfig(thinking_level="high")
+    return None
+
+============================================================
+FILE: llm\base_provider.py
+============================================================
+
+from abc import ABC, abstractmethod
+from typing import List, Dict, Any, Callable
+from .schemas import LLMResponse
+
+class BaseLLMProvider(ABC):
+    """
+    The blueprint for all LLM providers. 
+    Any new provider (Gemini, OpenAI, Groq) MUST implement these methods.
+    """
+    def __init__(self, api_key: str, model_name: str):
+        self.api_key = api_key
+        self.model_name = model_name
+
+    @abstractmethod
+    def format_messages(self, db_messages: List[Dict[str, Any]]) -> Any:
+        """
+        Converts standard database messages (e.g., [{"role": "user", "content": "hi"}])
+        into the specific format required by the LLM SDK.
+        """
+        pass
+
+    @abstractmethod
+    def generate_content(
+        self, 
+        messages: Any, 
+        tools: List[Callable], 
+        system_instruction: str = "",
+        **kwargs
+    ) -> LLMResponse:
+        """
+        Executes the LLM generation.
+        
+        Args:
+            messages: The formatted messages from format_messages().
+            tools: A dynamic list of Python functions (e.g., from get_all_tools()).
+                   The provider is responsible for parsing these dynamically.
+            system_instruction: The base system prompt.
+            
+        Returns:
+            LLMResponse: Our standardized schema containing text, tool_calls, and token counts.
+        """
+        pass
+
+============================================================
+FILE: llm\provider_factory.py
+============================================================
+
+from .base_provider import BaseLLMProvider
+from .providers.gemini import GeminiProvider
+
+class LLMFactory:
+    """
+    Factory class to instantiate the correct LLM provider dynamically.
+    """
+    @staticmethod
+    def get_provider(provider_name: str, api_key: str, model_name: str) -> BaseLLMProvider:
+        provider_name = provider_name.strip().lower()
+        
+        if provider_name == "gemini":
+            return GeminiProvider(api_key=api_key, model_name=model_name)
+            
+        else:
+            raise ValueError(f"Unsupported LLM provider: '{provider_name}'.")
+
+============================================================
+FILE: llm\schemas.py
+============================================================
+
+from dataclasses import dataclass, field
+from typing import List, Dict, Any, Optional
+
+@dataclass
+class ToolCall:
+    """Standardized representation of a tool/function call requested by the LLM."""
+    name: str
+    args: Dict[str, Any]
+    id: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class LLMResponse:
+    """Standardized output returned by any LLM Provider."""
+    text: str = ""
+    tool_calls: List[ToolCall] = field(default_factory=list)
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    raw_output: Any = None  
+
+============================================================
+FILE: llm\providers\gemini.py
+============================================================
+
+from typing import List, Dict, Any, Callable
+from google import genai
+from google.genai import types
+from ..base_provider import BaseLLMProvider
+from ..schemas import LLMResponse, ToolCall
+from utils.native_types_helpers import _to_native_types
+from engine.context_formatter import format_context
+from engine.generate_with_retry import generate_with_retry
+from engine.thinking_configure import get_thinking_config
+
+class GeminiProvider(BaseLLMProvider):
+    def __init__(self, api_key: str, model_name: str):
+        super().__init__(api_key, model_name)
+        self.client = genai.Client(api_key=self.api_key)
+        
+    def format_messages(self, standard_messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Maps the universal standard messages to Gemini's specific SDK format."""
+        gemini_messages = []
+        for msg in standard_messages:
+            role = msg["role"]
+            content = msg.get("content", "")
+            if role == "tool":
+                # Gemini specific tool response syntax
+                gemini_messages.append({
+                    "role": "function",
+                    "parts": [{"function_response": {"name": msg.get("tool_name"), "response": {"result": content}}}]
+                })
+            else:
+                # Gemini specific user/model syntax
+                gemini_role = "model" if role == "assistant" else "user"
+                parts = [{"text": content}] if content else []
+                
+                if msg.get("tool_calls"):
+                    for tc in msg["tool_calls"]:
+                        fc_dict = {"name": tc.name, "args": tc.args}
+                        metadata = tc.metadata if getattr(tc, "metadata", None) else {}
+                        
+                        # ID belongs inside the function_call
+                        if "id" in metadata:
+                            fc_dict["id"] = metadata["id"]
+                            
+                        # Build the Part structure
+                        part_dict = {"function_call": fc_dict}
+                        
+                        # thought_signature belongs on the Part level as a sibling
+                        if "thought_signature" in metadata:
+                            part_dict["thought_signature"] = metadata["thought_signature"]
+                            
+                        parts.append(part_dict)
+                        
+                if parts:
+                    gemini_messages.append({"role": gemini_role, "parts": parts})
+        return gemini_messages
+
+    def generate_content(self, messages: List[Dict[str, Any]], tools: List[Callable], system_instruction: str = "", **kwargs) -> LLMResponse:
+        # 1. Extract app-wide logic using your new file!
+        db_sys_inst, standard_msgs = format_context(messages)
+        final_system_instruction = f"{system_instruction}\n{db_sys_inst}".strip()
+        
+        # 2. Translate to Gemini format
+        gemini_messages = self.format_messages(standard_msgs)
+        
+        # 3. Build Gemini configuration
+        config_params = {"automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True)}
+        if final_system_instruction:
+            config_params["system_instruction"] = final_system_instruction
+        if tools:
+            config_params["tools"] = tools
+        thinking_cfg = get_thinking_config(self.model_name)
+        if thinking_cfg:
+            config_params["thinking_config"] = thinking_cfg
+        config = types.GenerateContentConfig(**config_params)
+        
+        
+        def make_gemini_request():
+            return self.client.models.generate_content(
+                model=self.model_name,
+                contents=gemini_messages,
+                config=config
+            )
+            
+        # Define the Gemini-specific 429 check
+        def is_gemini_quota_error(e):
+            exc_str = str(e)
+            exc_class = type(e).__name__
+            return (
+                "ResourceExhausted" in exc_class or
+                "429" in exc_str or
+                "quota" in exc_str.lower()
+            )
+
+        
+        # 4. Use the generic retry template
+        response = generate_with_retry(
+            request_fn=make_gemini_request,
+            is_quota_error_fn=is_gemini_quota_error,
+            status_callback=kwargs.get("status_callback"),
+            max_attempts=3
+        )
+        return self._parse_response(response)
+
+    def _parse_response(self, response: Any) -> LLMResponse:
+        """Parses native Gemini protobuf responses into standardized LLMResponse schema."""
+        prompt_tokens = response.usage_metadata.prompt_token_count if getattr(response, "usage_metadata", None) else 0
+        completion_tokens = response.usage_metadata.candidates_token_count if getattr(response, "usage_metadata", None) else 0
+        
+        candidate = response.candidates[0]
+        text_response = ""
+        tool_calls = []
+        
+        if getattr(candidate, "content", None) and getattr(candidate.content, "parts", None):
+            for part in candidate.content.parts:
+                if getattr(part, "text", None):
+                    text_response += part.text
+                if getattr(part, "function_call", None):
+                    fc = part.function_call
+                    metadata = {}
+                    
+                    if hasattr(fc, "id") and fc.id:
+                        metadata["id"] = fc.id
+                        
+                    # Fix: Extract from the Part object (part) instead of the FunctionCall (fc)
+                    if hasattr(part, "thought_signature") and part.thought_signature:
+                        metadata["thought_signature"] = part.thought_signature
+                        
+                    tool_calls.append(ToolCall(
+                        name=fc.name, 
+                        args=_to_native_types(fc.args),
+                        id=getattr(fc, "id", None), 
+                        metadata=metadata
+                    ))
+                    
+        return LLMResponse(
+            text=text_response.strip(),
+            tool_calls=tool_calls,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens
+        )
+
+============================================================
+FILE: managers\conversation_manager.py
+============================================================
+
+import sqlite3
+import tiktoken
+from database.connection import get_connection
+from queries.conversation_queries import create_conversation
+from queries.message_queries import create_message
+from queries.model_usage_queries import log_model_usage
+from queries.tool_log_queries import log_tool_execution
+
+def start_new_conversation(user_id: int = None, title: str = "New Conversation") -> dict:
+    """
+    Initializes a new conversation session in the database.
+    """
+    return create_conversation(user_id, title)
+
+
+def save_user_message(conversation_id: int, content: str) -> dict:
+    """
+    Saves the user's input message to the conversation history.
+    """
+    clean_content = content.strip()
+    if not clean_content:
+        raise ValueError("Message content cannot be empty.")
+        
+    return create_message(conversation_id, role="user", content=clean_content)
+
+
+# A safe local default limit (e.g., 100,000 tokens)
+MAX_CONTEXT_TOKENS = 100000
+
+def _estimate_tokens(messages: list[dict]) -> int:
+    
+    try:
+        # Get the standard local encoding used by modern models
+        encoding = tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        # Fallback if offline/unable to load
+        encoding = None
+
+    total_tokens = 0
+    for msg in messages:
+        content = msg["content"]
+        if encoding:
+            # Safely encode the text locally and count the tokens
+            total_tokens += len(encoding.encode(content))
+        else:
+            # Safe character-based fallback if tiktoken is not loaded
+            total_tokens += len(content) // 4
+            
+    return total_tokens
+
+
+def compile_llm_context(conversation_id: int, max_tokens: int = MAX_CONTEXT_TOKENS) -> list[dict]:
+    """
+    Compiles and self-trims the conversation history.
+    If the context exceeds max_tokens, it preserves the system summary card at index 0
+    but discards the oldest raw messages (index 1) until the payload fits within budget.
+    """
+    context_messages = []
+    
+    conn = get_connection()
+    try:
+        # 1. Fetch running summary if it exists
+        summary_query = """
+        SELECT summary_text, last_summarized_message_id 
+        FROM summaries 
+        WHERE conversation_id = ?;
+        """
+        cursor = conn.execute(summary_query, (conversation_id,))
+        summary_row = cursor.fetchone()
+        
+        has_summary = False
+        if summary_row:
+            has_summary = True
+            summary_text = summary_row["summary_text"]
+            last_msg_id = summary_row["last_summarized_message_id"]
+            
+            context_messages.append({
+                "role": "system",
+                "content": f"Summary of previous conversation history: {summary_text}"
+            })
+            
+            # Fetch raw messages created after that summary
+            messages_query = """
+            SELECT role, content 
+            FROM messages 
+            WHERE conversation_id = ? AND id > ? 
+            ORDER BY created_at ASC;
+            """
+            cursor = conn.execute(messages_query, (conversation_id, last_msg_id))
+        else:
+            # Case: No summary exists. Fetch all raw messages.
+            messages_query = """
+            SELECT role, content 
+            FROM messages 
+            WHERE conversation_id = ? 
+            ORDER BY created_at ASC;
+            """
+            cursor = conn.execute(messages_query, (conversation_id,))
+            
+        rows = cursor.fetchall()
+        for row in rows:
+            context_messages.append({
+                "role": row["role"],
+                "content": row["content"]
+            })
+            
+        # 2. Sliding Window Trimming Logic
+        # Calculate current estimated size
+        current_estimated_tokens = _estimate_tokens(context_messages)
+        
+        # If we are over budget, trim messages one-by-one
+        while current_estimated_tokens > max_tokens and len(context_messages) > 1:
+            # Determine where the oldest message is. 
+            # If we have a summary at index 0, the oldest message is at index 1.
+            # If we do NOT have a summary, the oldest message is at index 0.
+            trim_index = 1 if has_summary else 0
+            
+            # Remove the oldest message
+            context_messages.pop(trim_index)
+            
+            # Recalculate
+            current_estimated_tokens = _estimate_tokens(context_messages)
+            
+        return context_messages
+        
+    except sqlite3.Error as e:
+        raise RuntimeError(f"Database error while compiling LLM context: {e}") from e
+    finally:
+        conn.close()
+
+def save_assistant_message(conversation_id: int, content: str) -> dict:
+    """
+    Saves the AI assistant's response to the conversation history.
+    """
+    clean_content = content.strip()
+    if not clean_content:
+        raise ValueError("Assistant response content cannot be empty.")
+        
+    return create_message(conversation_id, role="assistant", content=clean_content)
+
+# (Keep your other imports and functions above)
+
+def log_api_usage(
+    conversation_id: int, 
+    model_name: str, 
+    prompt_tokens: int, 
+    completion_tokens: int
+) -> dict:
+    """
+    Records the token consumption of an LLM API call.
+    """
+    return log_model_usage(conversation_id, model_name, prompt_tokens, completion_tokens)
+
+
+def log_tool_run(
+    conversation_id: int,
+    tool_name: str,
+    arguments: str,
+    status: str,
+    output: str = None,
+    error_message: str = None
+) -> dict:
+    """
+    Logs the execution details and output of a system tool run.
+    """
+    return log_tool_execution(
+        conversation_id=conversation_id,
+        tool_name=tool_name,
+        arguments=arguments,
+        status=status,
+        output=output,
+        error_message=error_message
+    )
+
+============================================================
+FILE: managers\summary_manager.py
+============================================================
+
+# FILE: managers/summary_manager.py
+import threading
+from database.helper import execute_read
+from queries.summary_queries import create_or_update_summary, get_summary_by_conversation
+from llm.provider_factory import LLMFactory
+
+def trigger_background_summary(api_key: str, model_name: str, conversation_id: int) -> None:
+    """
+    Spawns a local background thread to analyze and compress conversation history
+    without causing any terminal UI latency.
+    """
+    thread = threading.Thread(
+        target=_run_summary_workflow, args=(api_key, model_name, conversation_id)
+    )
+    thread.daemon = True # Allows the application to exit safely if thread is running
+    thread.start()
+
+def _run_summary_workflow(api_key: str, model_name: str, conversation_id: int) -> None:
+    """
+    The background worker function. Checks if there are more than 10 un-summarized
+    messages, queries the LLM (via the abstract provider factory), and updates the summaries table.
+    """
+    # 1. Fetch old summary and determine the last message ID we summarized
+    summary_record = get_summary_by_conversation(conversation_id)
+    last_msg_id = summary_record["last_summarized_message_id"] if summary_record else 0
+
+    # 2. Query the messages table for all un-summarized messages
+    query = """
+    SELECT id, role, content
+    FROM messages
+    WHERE conversation_id = ? AND id > ?
+    ORDER BY id ASC;
+    """
+    try:
+        raw_messages = execute_read(query, (conversation_id, last_msg_id))
+    except Exception:
+        return # Safely ignore DB read errors in the background
+
+    # We only trigger a summary if we have accumulated more than 10 new un-summarized messages
+    if len(raw_messages) < 30:
+        return
+
+    # 3. Compile the text block to feed to the LLM
+    old_summary = summary_record["summary_text"] if summary_record else "No previous summary."
+    new_text_to_summarize = ""
+    for msg in raw_messages:
+        new_text_to_summarize += f"{msg['role']}: {msg['content']}\n"
+
+    prompt = f"""
+    You are a background text compressor.
+    Incorporate the following new messages into the old running summary of this conversation.
+    Keep the summary concise, factual, and strictly under 300 words. Preserve key facts and user preferences.
+
+    [Old Summary]
+    {old_summary}
+
+    [New Messages]
+    {new_text_to_summarize}
+    """
+
+    try:
+        # Use our decoupled factory instead of raw direct SDK calls
+        provider = LLMFactory.get_provider("gemini", api_key, model_name)
+        
+        # Format the prompt as a standard unified message structure
+        messages = [{"role": "user", "content": prompt}]
+        
+        # Execute content generation using the unified provider interface
+        response = provider.generate_content(messages=messages, tools=[])
+
+        if response.text:
+            latest_msg_id = raw_messages[-1]["id"]
+            # Save the new compressed summary to the database
+            create_or_update_summary(conversation_id, response.text.strip(), latest_msg_id)
+    except Exception:
+        # Silent pass on API failures so we never disrupt your active terminal session
+        pass
+
+============================================================
+FILE: managers\user_manager.py
+============================================================
+
+from queries.user_queries import (
+    create_user, 
+    get_user_by_id, 
+    get_user_by_username, 
+    get_default_user
+)
+
+def get_active_user() -> dict | None:
+    """
+    Retrieves the default active user profile.
+    """
+    return get_default_user()
+
+
+def register_user(name: str, username: str) -> dict:
+    """
+    Registers a new user in the system after running strict length 
+    and character validation checks.
+    """
+    # Define our whitelist of allowed characters (alphanumeric + underscore + dash + semicolon)
+    allowed_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-;")
+    
+    clean_name = name.strip()
+    clean_username = username.strip().lower()
+
+    # 1. Length Checks (Must be between 1 and 25 characters)
+    if not (1 <= len(clean_name) <= 25):
+        raise ValueError("Name must be between 1 and 25 characters long.")
+    if not (1 <= len(clean_username) <= 25):
+        raise ValueError("Username must be between 1 and 25 characters long.")
+
+    # 2. Strict Whitelist Check (Also naturally catches spaces, which are not in our whitelist)
+    if not all(char in allowed_chars for char in clean_name):
+        raise ValueError(
+            "Name contains invalid characters. Only letters, numbers, underscores, "
+            "dashes, and semicolons are allowed. Spaces are not permitted."
+        )
+        
+    if not all(char in allowed_chars for char in clean_username):
+        raise ValueError(
+            "Username contains invalid characters. Only letters, numbers, underscores, "
+            "dashes, and semicolons are allowed. Spaces are not permitted."
+        )
+
+    return create_user(clean_name, clean_username)
+
+
+def find_user_by_id(user_id: int) -> dict:
+    """
+    Retrieves user details by their database ID.
+    """
+    return get_user_by_id(user_id)
+
+
+def find_user_by_username(username: str) -> dict | None:
+    """
+    Retrieves user details by their unique username.
+    """
+    return get_user_by_username(username)
+
+============================================================
+FILE: queries\conversation_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+
+def create_conversation(user_id: int = None, title: str = "New Conversation") -> dict:
+    """
+    Creates a new conversation record.
+    """
+    query = "INSERT INTO conversations (user_id, title) VALUES (?, ?);"
+    conversation_id = execute_write(query, (user_id, title))
+    return get_conversation_by_id(conversation_id)
+
+
+def get_conversation_by_id(conversation_id: int) -> dict:
+    """
+    Retrieves a single conversation by its ID.
+    """
+    query = "SELECT id, user_id, title, created_at FROM conversations WHERE id = ?;"
+    conversation = execute_read(query, (conversation_id,), fetch_one=True)
+    if conversation is None:
+        raise ValueError(f"Conversation with ID {conversation_id} not found.")
+    return conversation
+
+
+def get_all_conversations() -> list[dict]:
+    """
+    Retrieves all conversations (newest first).
+    """
+    query = "SELECT id, user_id, title, created_at FROM conversations ORDER BY created_at DESC;"
+    return execute_read(query)
+
+
+def update_conversation_title(conversation_id: int, title: str) -> dict:
+    """
+    Updates the title of a conversation.
+    """
+    query = "UPDATE conversations SET title = ? WHERE id = ?;"
+    rows_affected = execute_write(query, (title, conversation_id))
+    if rows_affected == 0:
+        raise ValueError(f"Conversation with ID {conversation_id} not found.")
+    return get_conversation_by_id(conversation_id)
+
+
+def delete_conversation(conversation_id: int) -> None:
+    """
+    Deletes conversation. Linked messages delete automatically via ON DELETE CASCADE.
+    """
+    query = "DELETE FROM conversations WHERE id = ?;"
+    rows_affected = execute_write(query, (conversation_id,))
+    if rows_affected == 0:
+        raise ValueError(f"Conversation with ID {conversation_id} not found.")
+
+============================================================
+FILE: queries\memory_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+
+def create_memory(content: str, category: str = "general") -> dict:
+    """
+    Saves a new long-term memory fact or preference.
+    """
+    query = "INSERT INTO memories (content, category) VALUES (?, ?);"
+    memory_id = execute_write(query, (content, category))
+    return get_memory_by_id(memory_id)
+
+
+def get_memory_by_id(memory_id: int) -> dict:
+    """
+    Retrieves a single memory by its ID.
+    """
+    query = "SELECT id, content, category, created_at FROM memories WHERE id = ?;"
+    memory = execute_read(query, (memory_id,), fetch_one=True)
+    if memory is None:
+        raise ValueError(f"Memory with ID {memory_id} not found.")
+    return memory
+
+
+def search_memories(search_term: str) -> list[dict]:
+    """
+    Keyword searches content and categories using wildcards.
+    """
+    query = "SELECT id, content, category, created_at FROM memories WHERE content LIKE ? OR category LIKE ? ORDER BY created_at DESC;"
+    wildcard_term = f"%{search_term}%"
+    return execute_read(query, (wildcard_term, wildcard_term))
+
+
+def get_all_memories() -> list[dict]:
+    """
+    Retrieves all stored memories.
+    """
+    query = "SELECT id, content, category, created_at FROM memories ORDER BY created_at DESC;"
+    return execute_read(query)
+
+
+def delete_memory(memory_id: int) -> None:
+    """
+    Deletes a specific memory record.
+    """
+    query = "DELETE FROM memories WHERE id = ?;"
+    rows_affected = execute_write(query, (memory_id,))
+    if rows_affected == 0:
+        raise ValueError(f"Memory with ID {memory_id} not found.")
+
+============================================================
+FILE: queries\message_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+
+def create_message(conversation_id: int, role: str, content: str) -> dict:
+    """
+    Creates a new message. Validates role parameter first.
+    """
+    valid_roles = {"system", "user", "assistant"}
+    if role not in valid_roles:
+        raise ValueError(f"Invalid message role '{role}'. Must be one of {valid_roles}")
+        
+    query = "INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?);"
+    try:
+        message_id = execute_write(query, (conversation_id, role, content))
+        return get_message_by_id(message_id)
+    except sqlite3.IntegrityError as e:
+        raise ValueError(f"Cannot create message. Conversation with ID {conversation_id} does not exist.") from e
+
+
+def get_message_by_id(message_id: int) -> dict:
+    """
+    Retrieves a single message by its ID.
+    """
+    query = "SELECT id, conversation_id, role, content, created_at FROM messages WHERE id = ?;"
+    message = execute_read(query, (message_id,), fetch_one=True)
+    if message is None:
+        raise ValueError(f"Message with ID {message_id} not found.")
+    return message
+
+
+def get_messages_by_conversation(conversation_id: int) -> list[dict]:
+    """
+    Retrieves all messages for a specific conversation in chronological order.
+    """
+    query = "SELECT id, conversation_id, role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC;"
+    return execute_read(query, (conversation_id,))
+
+============================================================
+FILE: queries\model_usage_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+
+def log_model_usage(conversation_id: int | None, model_name: str, prompt_tokens: int, completion_tokens: int) -> dict:
+    """
+    Logs token consumption. Automatically sums total_tokens.
+    """
+    total_tokens = prompt_tokens + completion_tokens
+    query = "INSERT INTO model_usage (conversation_id, model_name, prompt_tokens, completion_tokens, total_tokens) VALUES (?, ?, ?, ?, ?);"
+    usage_id = execute_write(query, (conversation_id, model_name, prompt_tokens, completion_tokens, total_tokens))
+    return get_usage_by_id(usage_id)
+
+
+def get_usage_by_id(usage_id: int) -> dict:
+    """
+    Retrieves a single usage log record.
+    """
+    query = "SELECT id, conversation_id, model_name, prompt_tokens, completion_tokens, total_tokens, created_at FROM model_usage WHERE id = ?;"
+    usage = execute_read(query, (usage_id,), fetch_one=True)
+    if usage is None:
+        raise ValueError(f"Usage record with ID {usage_id} not found.")
+    return usage
+
+
+def get_total_usage_stats() -> dict:
+    """
+    Retrieves aggregate token consumption statistics across the system.
+    """
+    query = """
+    SELECT 
+        COALESCE(SUM(prompt_tokens), 0) AS total_prompt_tokens, 
+        COALESCE(SUM(completion_tokens), 0) AS total_completion_tokens, 
+        COALESCE(SUM(total_tokens), 0) AS grand_total_tokens 
+    FROM model_usage;
+    """
+    return execute_read(query, fetch_one=True)
+
+============================================================
+FILE: queries\project_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+
+def create_project(name: str, description: str = None) -> dict:
+    """
+    Creates a new project. Default status is 'active'.
+    """
+    query = "INSERT INTO projects (name, description) VALUES (?, ?);"
+    try:
+        project_id = execute_write(query, (name, description))
+        return get_project_by_id(project_id)
+    except sqlite3.IntegrityError as e:
+        raise ValueError(f"Project with name '{name}' already exists.") from e
+
+
+def get_project_by_id(project_id: int) -> dict:
+    """
+    Retrieves a single project by its ID.
+    """
+    query = "SELECT id, name, description, status, created_at FROM projects WHERE id = ?;"
+    project = execute_read(query, (project_id,), fetch_one=True)
+    if project is None:
+        raise ValueError(f"Project with ID {project_id} not found.")
+    return project
+
+
+def get_all_projects() -> list[dict]:
+    """
+    Retrieves all projects stored in the database.
+    """
+    query = "SELECT id, name, description, status, created_at FROM projects ORDER BY created_at DESC;"
+    return execute_read(query)
+
+
+def update_project_status(project_id: int, status: str) -> dict:
+    """
+    Updates the status of an existing project.
+    """
+    query = "UPDATE projects SET status = ? WHERE id = ?;"
+    rows_affected = execute_write(query, (status, project_id))
+    if rows_affected == 0:
+        raise ValueError(f"Project with ID {project_id} not found.")
+    return get_project_by_id(project_id)
+
+============================================================
+FILE: queries\summary_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+
+def create_or_update_summary(conversation_id: int, summary_text: str, last_message_id: int) -> dict:
+    """
+    Saves or updates the running summary of a conversation (Context Compression).
+    """
+    existing_summary = get_summary_by_conversation(conversation_id)
+    
+    if existing_summary:
+        query = "UPDATE summaries SET summary_text = ?, last_summarized_message_id = ? WHERE conversation_id = ?;"
+        params = (summary_text, last_message_id, conversation_id)
+    else:
+        query = "INSERT INTO summaries (summary_text, last_summarized_message_id, conversation_id) VALUES (?, ?, ?);"
+        params = (summary_text, last_message_id, conversation_id)
+        
+    execute_write(query, params)
+    return get_summary_by_conversation(conversation_id)
+
+
+def get_summary_by_conversation(conversation_id: int) -> dict | None:
+    """
+    Retrieves the running summary for a specific conversation.
+    """
+    query = "SELECT id, conversation_id, summary_text, last_summarized_message_id, created_at FROM summaries WHERE conversation_id = ?;"
+    return execute_read(query, (conversation_id,), fetch_one=True)
+
+============================================================
+FILE: queries\task_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+
+def create_task(project_id: int, title: str, description: str = None) -> dict:
+    """
+    Creates a new task linked to a project.
+    """
+    query = "INSERT INTO tasks (project_id, title, description) VALUES (?, ?, ?);"
+    try:
+        task_id = execute_write(query, (project_id, title, description))
+        return get_task_by_id(task_id)
+    except sqlite3.IntegrityError as e:
+        raise ValueError(f"Cannot create task. Project with ID {project_id} does not exist.") from e
+
+
+def get_task_by_id(task_id: int) -> dict:
+    """
+    Retrieves a single task by its ID.
+    """
+    query = "SELECT id, project_id, title, description, status, created_at, completed_at FROM tasks WHERE id = ?;"
+    task = execute_read(query, (task_id,), fetch_one=True)
+    if task is None:
+        raise ValueError(f"Task with ID {task_id} not found.")
+    return task
+
+
+def get_tasks_by_project(project_id: int) -> list[dict]:
+    """
+    Retrieves all tasks linked to a specific project.
+    """
+    query = "SELECT id, project_id, title, description, status, created_at, completed_at FROM tasks WHERE project_id = ? ORDER BY created_at ASC;"
+    return execute_read(query, (project_id,))
+
+
+def update_task_status(task_id: int, status: str) -> dict:
+    """
+    Updates status and automatically controls the completed_at timestamp.
+    """
+    query = """
+    UPDATE tasks 
+    SET status = ?, 
+        completed_at = CASE WHEN ? = 'completed' THEN CURRENT_TIMESTAMP ELSE NULL END
+    WHERE id = ?;
+    """
+    rows_affected = execute_write(query, (status, status, task_id))
+    if rows_affected == 0:
+        raise ValueError(f"Task with ID {task_id} not found.")
+    return get_task_by_id(task_id)
+
+============================================================
+FILE: queries\tool_log_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+import json # Make sure json is imported at the top of the file
+
+def log_tool_execution(
+    conversation_id: int | None, 
+    tool_name: str, 
+    arguments: str, 
+    status: str, 
+    output: any = None,  # Changed type hint to any
+    error_message: str = None
+) -> dict:
+    """ Logs execution history and status of a tool. """
+    if status not in {"success", "error"}:
+        raise ValueError("Tool execution status must be either 'success' or 'error'.")
+
+    # --- FIX: Convert dictionary/list outputs into clean JSON strings before writing to SQLite ---
+    if isinstance(output, (dict, list)):
+        output_str = json.dumps(output, ensure_ascii=False)
+    else:
+        output_str = str(output) if output is not None else None
+
+
+    query = "INSERT INTO tool_logs (conversation_id, tool_name, arguments, output, status, error_message) VALUES (?, ?, ?, ?, ?, ?);"
+    
+    # Pass output_str instead of the raw output dict
+    log_id = execute_write(query, (conversation_id, tool_name, arguments, output_str, status, error_message))
+    return get_tool_log_by_id(log_id)
+
+
+def get_tool_log_by_id(log_id: int) -> dict:
+    """
+    Retrieves a single tool log entry.
+    """
+    query = "SELECT id, conversation_id, tool_name, arguments, output, status, error_message, created_at FROM tool_logs WHERE id = ?;"
+    log = execute_read(query, (log_id,), fetch_one=True)
+    if log is None:
+        raise ValueError(f"Tool log with ID {log_id} not found.")
+    return log
+
+
+def get_tool_logs_by_conversation(conversation_id: int) -> list[dict]:
+    """
+    Retrieves chronological tool executions inside a conversation context.
+    """
+    query = "SELECT id, conversation_id, tool_name, arguments, output, status, error_message, created_at FROM tool_logs WHERE conversation_id = ? ORDER BY created_at ASC;"
+    return execute_read(query, (conversation_id,))
+
+============================================================
+FILE: queries\user_queries.py
+============================================================
+
+import sqlite3
+from database.helper import execute_read, execute_write
+
+def create_user(name: str, username: str) -> dict:
+    """
+    Inserts a new user into the users table.
+    """
+    query = "INSERT INTO users (name, username) VALUES (?, ?);"
+    try:
+        user_id = execute_write(query, (name, username))
+        return get_user_by_id(user_id)
+    except sqlite3.IntegrityError as e:
+        raise ValueError(f"Username '{username}' is already taken.") from e
+
+
+def get_user_by_id(user_id: int) -> dict:
+    """
+    Retrieves a user by their unique database ID.
+    """
+    query = "SELECT id, name, username, created_at FROM users WHERE id = ?;"
+    user = execute_read(query, (user_id,), fetch_one=True)
+    if user is None:
+        raise ValueError(f"User with ID {user_id} not found.")
+    return user
+
+
+def get_user_by_username(username: str) -> dict | None:
+    """
+    Retrieves a user by their unique username.
+    """
+    query = "SELECT id, name, username, created_at FROM users WHERE username = ?;"
+    return execute_read(query, (username,), fetch_one=True)
+
+
+def get_default_user() -> dict | None:
+    """
+    Retrieves the first user in the database.
+    """
+    query = "SELECT id, name, username, created_at FROM users ORDER BY id ASC LIMIT 1;"
+    return execute_read(query, fetch_one=True)
+
+============================================================
+FILE: tests\test_context_manager.py
+============================================================
+
+# FILE: tests/test_context_manager.py
+import unittest
+from unittest.mock import patch
+from managers.conversation_manager import _estimate_tokens
+from managers.conversation_manager import compile_llm_context
+
+class TestContextManager(unittest.TestCase):
+    def test_estimate_tokens_with_tiktoken(self):
+        """Ensures tiktoken counts tokens correctly when available."""
+        messages = [
+            {"content": "Hello, how are you?"},
+            {"content": "I am fine, thank you."}
+        ]
+        # Should accurately estimate tokens (approx 10-15 tokens depending on cl100k_base)
+        tokens = _estimate_tokens(messages)
+        self.assertGreater(tokens, 5)
+        self.assertLess(tokens, 20)
+
+    @patch('managers.conversation_manager.tiktoken.get_encoding')
+    def test_estimate_tokens_fallback(self, mock_tiktoken):
+        """Edge Case: If tiktoken is unavailable, fallback character math (len/4) is used."""
+        mock_tiktoken.side_effect = Exception("Offline/Module Not Found")
+        
+        # Total chars: 20 chars + 20 chars = 40 chars. 40 // 4 = 10 tokens
+        messages = [
+            {"content": "A" * 20},
+            {"content": "B" * 20}
+        ]
+        tokens = _estimate_tokens(messages)
+        self.assertEqual(tokens, 10)
+
+    @patch('managers.conversation_manager.get_connection')
+    @patch('managers.conversation_manager._estimate_tokens')
+    def test_compile_llm_context_trimming(self, mock_estimate, mock_conn):
+        """Edge case: Context manager discards index 1 when breaching MAX_CONTEXT_TOKENS."""
+        
+        
+        # Mock database rows containing 3 messages
+        mock_cursor = mock_conn.return_value.execute.return_value
+        mock_cursor.fetchone.return_value = None # No summary exists
+        mock_cursor.fetchall.return_value = [
+            {"role": "user", "content": "Msg 1"},
+            {"role": "assistant", "content": "Msg 2"},
+            {"role": "user", "content": "Msg 3"}
+        ]
+        
+        # Fake token sizes: 1st loop: 1500 tokens (over budget). 2nd loop: 900 tokens (under budget)
+        mock_estimate.side_effect = [1500, 900]
+        
+        # Set max tokens extremely low for the test
+        result = compile_llm_context(conversation_id=1, max_tokens=1000)
+        
+        # Should have trimmed the oldest message (Msg 1)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["content"], "Msg 2")
+        self.assertEqual(result[1]["content"], "Msg 3")
+
+if __name__ == "__main__":
+    unittest.main()
+
+============================================================
+FILE: tests\test_database.py
+============================================================
+
+import os
+import sqlite3
+# Import both the connection, the table creator, AND the database path from our database package
+from database.connection import get_connection, DATABASE_PATH
+from database.table_generator import create_tables
+
+def run_database_test() -> None:
+    """
+    Validates that the database file is created, tables are initialized,
+    and running table generation multiple times does not raise errors.
+    """
+    print("Starting database initialization test...")
+    
+    # 1. Run the table generation code
+    try:
+        create_tables()
+        print("Success: create_tables() executed without errors.")
+    except Exception as e:
+        raise AssertionError(f"create_tables() failed on initial run: {e}")
+
+    # 2. Verify that the database file actually exists at the correct path
+    # We now use the imported DATABASE_PATH instead of the hardcoded "assistant.db"
+    if not os.path.exists(DATABASE_PATH):
+        raise AssertionError(f"Database file was not created at '{DATABASE_PATH}'.")
+    print(f"Success: Database file found at '{DATABASE_PATH}'.")
+
+    # 3. Query SQLite system table to verify the expected tables exist
+    expected_tables = {
+        "users", "projects", "tasks", "conversations", 
+        "messages", "memories", "model_usage", "tool_logs","summaries"
+    }
+    
+    conn = get_connection()
+    try:
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        existing_tables = {row["name"] for row in cursor.fetchall()}
+        
+        # Verify each of our expected tables is present
+        missing_tables = expected_tables - existing_tables
+        if missing_tables:
+            raise AssertionError(f"Missing expected tables in database: {missing_tables}")
+            
+        print("Success: All 9 foundational tables verified in the schema.")
+        
+    finally:
+        conn.close()
+
+    # 4. Run create_tables() again to verify it is safe to run multiple times
+    try:
+        create_tables()
+        print("Success: Secondary run of create_tables() passed safely.")
+    except Exception as e:
+        raise AssertionError(f"create_tables() is not safe to run repeatedly: {e}")
+
+    print("\nDatabase verification tests passed.")
+
+if __name__ == "__main__":
+    run_database_test()
+
+============================================================
+FILE: tests\test_database_queries.py
+============================================================
+
+# FILE: tests/test_database_queries.py
+import unittest
+import tempfile
+import os
+import sqlite3
+from unittest.mock import patch
+from queries.user_queries import create_user, get_user_by_id
+from database.table_generator import create_tables
+from queries.user_queries import create_user
+from queries.conversation_queries import create_conversation
+from queries.message_queries import create_message
+from queries.user_queries import create_user
+from queries.conversation_queries import get_conversation_by_id
+from queries.task_queries import get_task_by_id
+
+class TestDatabaseQueries(unittest.TestCase):
+    def setUp(self):
+        # Create a blank temporary database file
+        self.temp_db = tempfile.NamedTemporaryFile(delete=False)
+        self.temp_db_path = self.temp_db.name
+        self.temp_db.close()
+        
+        # Patch the DATABASE_PATH so the helper uses our temporary file
+        self.db_patcher = patch('database.connection.DATABASE_PATH', self.temp_db_path)
+        self.db_patcher.start()
+        
+        # Initialize the tables in the temp db
+        
+        create_tables()
+
+    def tearDown(self):
+        self.db_patcher.stop()
+        os.remove(self.temp_db_path)
+
+    def test_create_and_fetch_user(self):
+        """Tests standard creation and retrieval queries."""
+        
+        
+        user = create_user("Test User", "testuser")
+        self.assertEqual(user["username"], "testuser")
+        self.assertIsNotNone(user["id"])
+        
+        fetched = get_user_by_id(user["id"])
+        self.assertEqual(fetched["name"], "Test User")
+
+    def test_user_unique_constraint(self):
+        """Edge Case: Cannot create two users with the identical username."""
+        
+        create_user("User One", "unique_name")
+        with self.assertRaisesRegex(ValueError, "is already taken"):
+            create_user("User Two", "unique_name")
+
+    def test_message_role_constraint(self):
+        """Edge Case: SQLite message insertion throws ValueError if role is invalid."""
+        
+        
+        
+        user = create_user("A", "A")
+        conv = create_conversation(user["id"], "Test Title")
+        
+        with self.assertRaisesRegex(ValueError, "Invalid message role"):
+            create_message(conv["id"], role="hacker", content="Malicious code")
+            
+        # Valid roles should pass
+        msg = create_message(conv["id"], role="user", content="Good payload")
+        self.assertEqual(msg["role"], "user")
+
+    def test_missing_data_exceptions(self):
+        """Ensures get_*_by_id functions raise clean ValueErrors when IDs don't exist."""
+        
+        
+        with self.assertRaises(ValueError):
+            get_conversation_by_id(9999)
+            
+        with self.assertRaises(ValueError):
+            get_task_by_id(9999)
+
+if __name__ == "__main__":
+    unittest.main()
+
+============================================================
+FILE: tests\test_engine_retry.py
+============================================================
+
+# FILE: tests/test_engine_retry.py
+import unittest
+from unittest.mock import patch, MagicMock
+from engine.generate_with_retry import generate_with_retry
+
+class TestEngineRetry(unittest.TestCase):
+    def setUp(self):
+        self.mock_request_fn = MagicMock()
+        self.mock_is_quota_error_fn = MagicMock()
+        self.mock_callback = MagicMock()
+
+    @patch('engine.generate_with_retry.time.sleep')
+    def test_success_first_try(self, mock_sleep):
+        """Normal scenario: returns immediately on first success."""
+        mock_response = MagicMock()
+        self.mock_request_fn.return_value = mock_response
+        
+        result = generate_with_retry(
+            request_fn=self.mock_request_fn,
+            is_quota_error_fn=self.mock_is_quota_error_fn,
+            status_callback=self.mock_callback,
+            max_attempts=3
+        )
+        
+        self.assertEqual(result, mock_response)
+        self.assertEqual(self.mock_request_fn.call_count, 1)
+        mock_sleep.assert_not_called()
+
+    @patch('engine.generate_with_retry.time.sleep')
+    def test_exponential_backoff_transient_errors(self, mock_sleep):
+        """Edge Case: Fails twice, succeeds on third try. Checks exact sleep scaling."""
+        mock_response = MagicMock()
+        self.mock_request_fn.side_effect = [
+            Exception("503 Service Unavailable"),
+            Exception("500 Internal Error"),
+            mock_response
+        ]
+        self.mock_is_quota_error_fn.return_value = False
+        
+        result = generate_with_retry(
+            request_fn=self.mock_request_fn,
+            is_quota_error_fn=self.mock_is_quota_error_fn,
+            status_callback=self.mock_callback,
+            max_attempts=3
+        )
+        
+        self.assertEqual(result, mock_response)
+        self.assertEqual(self.mock_request_fn.call_count, 3)
+        mock_sleep.assert_any_call(2.0)
+        mock_sleep.assert_any_call(4.0)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    @patch('engine.generate_with_retry.time.sleep')
+    def test_429_quota_error_recovery(self, mock_sleep):
+        """Edge Case: 429 Quota error triggers an immediate 3x base_delay sleep."""
+        mock_response = MagicMock()
+        self.mock_request_fn.side_effect = [
+            Exception("ResourceExhausted: 429 Quota limit exceeded"),
+            mock_response
+        ]
+        self.mock_is_quota_error_fn.return_value = True
+        
+        result = generate_with_retry(
+            request_fn=self.mock_request_fn,
+            is_quota_error_fn=self.mock_is_quota_error_fn,
+            status_callback=self.mock_callback,
+            max_attempts=3
+        )
+        
+        self.assertEqual(result, mock_response)
+        mock_sleep.assert_called_once_with(6.0)
+
+    @patch('engine.generate_with_retry.time.sleep')
+    def test_429_quota_error_fatal(self, mock_sleep):
+        """Edge Case: If 429 Quota fails twice, it crashes safely."""
+        self.mock_request_fn.side_effect = [
+            Exception("ResourceExhausted: 429 Quota limit exceeded"),
+            Exception("ResourceExhausted: 429 Quota limit exceeded")
+        ]
+        self.mock_is_quota_error_fn.return_value = True
+        
+        with self.assertRaisesRegex(RuntimeError, "Daily quota limit has been reached"):
+            generate_with_retry(
+                request_fn=self.mock_request_fn,
+                is_quota_error_fn=self.mock_is_quota_error_fn,
+                status_callback=self.mock_callback,
+                max_attempts=3
+            )
+
+if __name__ == "__main__":
+    unittest.main()
+
+============================================================
+FILE: tests\test_files_tools_edge_cases.py
+============================================================
+
+# FILE: tests/test_file_tools_edge_cases.py
+import unittest
+import os
+import json
+import tempfile
+from unittest.mock import patch
+from tools.file_tools import read_files, write_files
+
+class TestFileToolsEdgeCases(unittest.TestCase):
+    def setUp(self):
+        # Create a safe temp directory to act as the sandbox for the test
+        self.temp_sandbox = tempfile.TemporaryDirectory()
+        self.patcher = patch('tools.file_tools.SANDBOX_ROOT', self.temp_sandbox.name)
+        self.patcher.start()
+
+    def tearDown(self):
+        self.patcher.stop()
+        self.temp_sandbox.cleanup()
+
+    def test_invalid_json_inputs(self):
+        """Edge Case: LLM hallucinates malformed JSON string."""
+        bad_json = '{"path": "file.txt" -- missing brackets'
+        res_read = read_files(bad_json)
+        self.assertIn("error", res_read)
+        self.assertIn("Invalid JSON format", res_read["error"])
+
+    def test_path_traversal_jailbreak(self):
+        """Security: Attempts to read or write to system paths outside workspace."""
+        hacker_payload = json.dumps([{"path": "../../../../../etc/passwd", "content": "hacked"}])
+        res_write = write_files(hacker_payload)
+        
+        # Should block and return error dictionary
+        key = list(res_write.keys())[0]
+        self.assertIn("Error: Path", res_write[key])
+        self.assertIn("is outside the allowed workspace", res_write[key])
+
+    def test_read_files_deduplication(self):
+        """Efficiency: Model requests the exact same file 3 times. Engine reads it only once."""
+        test_file = os.path.join(self.temp_sandbox.name, "dup.txt")
+        with open(test_file, 'w') as f:
+            f.write("test_content")
+
+        payload = json.dumps(["dup.txt", "dup.txt", "dup.txt"])
+        with patch('builtins.open', unittest.mock.mock_open(read_data="test_content")) as m:
+            res = read_files(payload)
+            
+            # Should only contain 1 unique key result
+            self.assertEqual(len(res), 1)
+            # The file should have actually only been opened ONCE
+            m.assert_called_once()
+
+    def test_write_files_deduplication(self):
+        """Efficiency: Model writes overlapping files. Only the last payload is saved."""
+        payload = json.dumps([
+            {"path": "file1.txt", "content": "old_data"},
+            {"path": "file1.txt", "content": "latest_data"}
+        ])
+        res = write_files(payload)
+        
+        # Read back to ensure only "latest_data" exists
+        written_file = os.path.join(self.temp_sandbox.name, "file1.txt")
+        with open(written_file, "r") as f:
+            data = f.read()
+        self.assertEqual(data, "latest_data")
+
+if __name__ == "__main__":
+    unittest.main()
+
+============================================================
+FILE: tests\test_user_manager.py
+============================================================
+
+# FILE: tests/test_user_manager.py
+import unittest
+from unittest.mock import patch
+from managers.user_manager import register_user
+
+class TestUserManager(unittest.TestCase):
+    @patch('managers.user_manager.create_user')
+    def test_register_user_success(self, mock_create):
+        """Verifies valid names and usernames pass constraints and are cleaned."""
+        mock_create.return_value = {"id": 1, "name": "John_Doe", "username": "johndoe"}
+        
+        # Display name must contain no spaces to pass the whitelist
+        user = register_user(" John_Doe ", "JohnDoe")
+        
+        mock_create.assert_called_once_with("John_Doe", "johndoe")
+        self.assertEqual(user["username"], "johndoe")
+
+    def test_register_user_length_limits(self):
+        """Edge Case: Fails if name or username is empty or exceeds 25 chars."""
+        with self.assertRaisesRegex(ValueError, "must be between 1 and 25"):
+            register_user("", "valid_user")
+            
+        with self.assertRaisesRegex(ValueError, "must be between 1 and 25"):
+            register_user("valid_name", "")
+            
+        with self.assertRaisesRegex(ValueError, "must be between 1 and 25"):
+            register_user("A" * 26, "valid_user")
+
+    def test_register_user_invalid_characters(self):
+        """Edge Case: Whitelist validation blocks special characters and spaces in username."""
+        invalid_names = ["Ayush@123", "Ayush!", "Ayush#"]
+        for name in invalid_names:
+            with self.assertRaisesRegex(ValueError, "Name contains invalid characters"):
+                register_user(name, "valid_user")
+
+        invalid_usernames = ["ayush tiwari", "ayush@tiwari", "ayush/tiwari"]
+        for uname in invalid_usernames:
+            with self.assertRaisesRegex(ValueError, "Username contains invalid characters"):
+                # Use "Valid_Name" (with underscore) so the username validation block is reached
+                register_user("Valid_Name", uname)
+
+if __name__ == "__main__":
+    unittest.main()
+
+============================================================
+FILE: tests\__init__.py
+============================================================
+
+
+
+============================================================
+FILE: tools\file_tools.py
+============================================================
+
+# FILE: tools/file_tools.py
+import os
+import json
+
+SANDBOX_ROOT = os.path.abspath(
+    os.path.join(os.path.expanduser("~"), ".local_workflow_agent", "workspace")
+)
+os.makedirs(SANDBOX_ROOT, exist_ok=True)
+
+def _resolve_safe_path(path: str) -> str | None:
+    full_path = os.path.abspath(os.path.join(SANDBOX_ROOT, path))
+    if os.path.commonpath([full_path, SANDBOX_ROOT]) != SANDBOX_ROOT:
+        return None
+    return full_path
+
+def read_files(paths_json: str) -> dict:
+    """ 
+    Safely reads multiple files from the sandboxed workspace in a single turn. 
+    
+    Args:
+        paths_json: A JSON-formatted string representing a LIST of file paths.
+        Example EXACT format: '["file1.txt", "src/main.py"]'
+    """
+    try:
+        paths = json.loads(paths_json)
+    except Exception as e:
+        return {"error": f"Invalid JSON format for paths_json: {e}"}
+    
+    if not isinstance(paths, list):
+        return {"error": "Expected a JSON list of paths."}
+
+    # Deduplicate paths to prevent redundant read actions
+    unique_paths = []
+    for p in paths:
+        if p and p not in unique_paths:
+            unique_paths.append(p)
+
+    results = {}
+    for path in unique_paths:
+        safe_path = _resolve_safe_path(path)
+        if safe_path is None:
+            results[path] = f"Error: Path '{path}' is outside the allowed workspace."
+            continue
+        try:
+            if not os.path.exists(safe_path):
+                results[path] = "Error: File not found."
+            elif os.path.isdir(safe_path):
+                results[path] = "Error: Path is a directory, not a file."
+            else:
+                with open(safe_path, 'r', encoding='utf-8', errors='replace') as f:
+                    results[path] = f.read()
+        except Exception as e:
+            results[path] = f"Error: Failed to read file: {e}"
+            
+    return results
+
+def write_files(files_json: str) -> dict:
+    """ 
+    Safely writes multiple files to disk inside the sandboxed workspace. 
+    
+    Args:
+        files_json: A JSON-formatted string representing a LIST of dictionary objects.
+        Each dictionary MUST have 'path' and 'content' keys.
+        Example EXACT format: '[{"path": "hello.txt", "content": "print('hi')"}]'
+    """
+    try:
+        files = json.loads(files_json)
+    except Exception as e:
+        return {"error": f"Invalid JSON format for files_json: {e}"}
+
+    if not isinstance(files, list):
+        return {"error": "Expected a JSON list of file objects."}
+
+    # Deduplicate files by tracking unique paths.
+    # If duplicates are passed, only write the latest content for each path.
+    unique_files = {}
+    for file_info in files:
+        if not isinstance(file_info, dict):
+            continue
+        path = file_info.get("path")
+        content = file_info.get("content", "")
+        if path:
+            unique_files[path] = content
+
+    results = {}
+    for path, content in unique_files.items():
+        safe_path = _resolve_safe_path(path)
+        if safe_path is None:
+            results[path] = f"Error: Path '{path}' is outside the allowed workspace."
+            continue
+        try:
+            parent_dir = os.path.dirname(safe_path)
+            if parent_dir and not os.path.exists(parent_dir):
+                os.makedirs(parent_dir, exist_ok=True)
+            with open(safe_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            results[path] = "Success: File written successfully."
+        except Exception as e:
+            results[path] = f"Error: Failed to write file: {e}"
+            
+    return results
+
+============================================================
+FILE: tools\registry.py
+============================================================
+
+import inspect
+from tools.file_tools import read_files, write_files
+
+TOOL_REGISTRY = {
+    "read_files": read_files,
+    "write_files": write_files
+}
+
+def get_all_tools() -> list:
+    return list(TOOL_REGISTRY.values())
+
+
+def execute_tool(tool_name: str, arguments: dict) -> str:
+    tool_func = TOOL_REGISTRY.get(tool_name)
+    if not tool_func:
+        return f"Error: Tool '{tool_name}' is not registered."
+        
+    sig = inspect.signature(tool_func)
+    for param_name, param in sig.parameters.items():
+        if param.default == inspect.Parameter.empty and param_name not in arguments:
+            return f"Error: Missing required parameter '{param_name}' for tool '{tool_name}'."
+            
+    try:
+        return tool_func(**arguments)
+    except Exception as e:
+        return f"Error: Failed to execute tool '{tool_name}': {e}"
+
+============================================================
+FILE: utils\native_types_helpers.py
+============================================================
+
+def _to_native_types(val):
+    """
+    Recursively converts Protobuf-specific mapping and list types 
+    (like RepeatedComposite, MapFieldsContainer, Struct) into standard Python dicts/lists.
+    """
+    if hasattr(val, "items"):
+        return {k: _to_native_types(v) for k, v in val.items()}
+    elif isinstance(val, (str, int, float, bool, type(None))):
+        return val
+    elif hasattr(val, "__iter__"):
+        return [_to_native_types(x) for x in val]
+    return val
+
+============================================================
+FILE: utils\path_helper.py
+============================================================
+
+import os
+
+def get_project_root() -> str:
+    """
+    Resolves the absolute path to the root directory of this project.
+    This file lives in local_workflow_agent/utils/path_helper.py
+    """
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # Go up one level to get to local_workflow_agent/
+    return os.path.dirname(current_dir)
+
+def resolve_absolute_path(relative_path: str) -> str:
+    """
+    Converts any relative project path into a secure, absolute path
+    starting from the project root directory.
+    """
+    root_dir = get_project_root()
+    return os.path.abspath(os.path.join(root_dir, relative_path))
+
+def load_env_file() -> None:
+    """
+    Locates the .env file in the project root and populates os.environ.
+    Attempts to use python-dotenv if available, falling back to a robust 
+    standard-library parser if the dependency is not installed.
+    """
+    env_path = resolve_absolute_path(".env")
+    if not os.path.exists(env_path):
+        return
+
+    try:
+        # Attempt standard python-dotenv approach with explicit absolute path
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path=env_path)
+    except ImportError:
+        # Standard library fallback to avoid dependency errors on local machines
+        _load_env_fallback(env_path)
+
+def _load_env_fallback(env_path: str) -> None:
+    """
+    A robust parser that handles inline comments, whitespace, and 
+    quote stripping without external dependencies.
+    """
+    with open(env_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            # Ignore empty lines and direct comment lines
+            if not line or line.startswith("#"):
+                continue
+            
+            if "=" in line:
+                key, val = line.split("=", 1)
+                key = key.strip()
+                val = val.strip()
+                
+                # Strip trailing inline comments if present (e.g., KEY=VAL # comment)
+                if " #" in val:
+                    val = val.split(" #", 1)[0].strip()
+                
+                # Remove wrapping double or single quotes
+                if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+                    val = val[1:-1]
+                
+                os.environ[key] = val
+
+============================================================
+FILE: utils\__init__.py
+============================================================
+
+
+
