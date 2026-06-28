@@ -22,9 +22,9 @@ conn.close()
 FILE: main.py
 ============================================================
 
-# FILE: test_main.py
-
+# FILE: main.py
 import sys
+
 # Import the path helper first
 from utils.path_helper import load_env_file
 
@@ -34,24 +34,86 @@ load_env_file()
 # Absolute imports from our packages
 from database.table_generator import create_tables
 from managers.user_manager import get_active_user, register_user
-from managers.conversation_manager import start_new_conversation
+from managers.conversation_manager import compile_llm_context  # noqa: F401 (kept for parity)
 
-# --> USE THE NEW TEST ENGINE <--
+# --> Engine <--
 from engine.agent_engine import AgentEngine
 
+# --> New CLI UI layer <--
+from cli.conversation_ui import (
+    main_menu,
+    display_conversation_list,
+    prompt_pick_conversation,
+    render_conversation_history,
+    show_tool_calls_only,
+    rename_conversation_flow,
+)
+from managers.conversation_manager import start_new_conversation
+
+
 def cli_tool_approval_callback(tool_name: str, arguments: dict) -> bool:
-    """ Passed to the Engine to handle terminal user authorization. """
-    print(f"\n 📝 [AI Requests Tool Run] -> {tool_name}")
-    print(f"    Parameters: {arguments}")
+    """Passed to the Engine to handle terminal user authorization."""
+    print(f"\n📝 [AI Requests Tool Run] -> {tool_name}")
+    print(f"   Parameters: {arguments}")
     choice = input("👉 Allow this action? (y/n): ").strip().lower()
     return choice == "y"
+
 
 def cli_status_callback(message: str) -> None:
     """Prints system-level status and retry updates to the console."""
     print(f"⚙️ [System Status] {message}")
 
+
+
+def pick_conversation(user: dict) -> int | None:
+    """
+    Shows the main menu (new / resume / rename / exit) on a loop until
+    the user lands on a conversation_id to chat in, or chooses to exit.
+    """
+    while True:
+        choice = main_menu(user["name"])
+
+        if choice == "new":
+            title = input("📝 Title for this conversation (blank = 'New Conversation'): ").strip()
+            session = start_new_conversation(
+                user_id=user["id"],
+                title=title or "New Conversation",
+            )
+            print(f"\n✅ Started new conversation (id={session['id']}).")
+            return session["id"]
+
+        if choice == "resume":
+            conversations = display_conversation_list()
+            target = prompt_pick_conversation(conversations)
+            if target is None:
+                continue
+            render_conversation_history(target["id"])
+            return target["id"]
+
+        if choice == "rename":
+            rename_conversation_flow()
+            continue
+
+        if choice == "exit":
+            return None
+
+        print("⚠️  Invalid choice, please pick 1-4.")
+
+
+
+
+IN_CHAT_HELP = """
+Available commands:
+  exit / quit   - close the session
+  menu          - go back to the conversation menu (switch / rename / new)
+  history       - reprint the full transcript of this conversation
+  tools         - show just the tool calls made in this conversation
+  help          - show this list again
+""".strip()
+
+
 def run_assistant_cli() -> None:
-    """ The main CLI loop that boots the system. """
+    """The main CLI loop that boots the system."""
     print("Initializing local assistant database...")
     try:
         create_tables()
@@ -74,15 +136,7 @@ def run_assistant_cli() -> None:
             except ValueError as e:
                 print(f"Validation Error: {e}. Please try again.\n")
 
-    # Start or load a central Conversation Session
-    try:
-        session = start_new_conversation(user_id=user["id"], title="Active Terminal Session")
-        conversation_id = session["id"]
-    except Exception as e:
-        print(f"Fatal: Failed to start conversation session: {e}")
-        sys.exit(1)
-
-    # Instantiate our NEW Agent Engine
+    # Instantiate our Agent Engine
     try:
         # Default provider is Gemini, but architecture supports others now
         engine = AgentEngine(provider_name="gemini", autonomous=False)
@@ -91,55 +145,294 @@ def run_assistant_cli() -> None:
         print("Please make sure you have set the GEMINI_API_KEY inside your .env file.")
         sys.exit(1)
 
-    print(f"\n=== Hello, {user['name']}! Your new abstract local-first agent is ready. ===")
-    print("Type 'exit' or 'quit' to close the session.\n")
-
-    # The Interactive Chat Loop
+    # Outer loop: lets the user bounce between conversations without restarting the app
     while True:
-        try:
-            user_input = input("👤 You: ").strip()
-            if not user_input:
-                continue
+        conversation_id = pick_conversation(user)
+        if conversation_id is None:
+            print("Goodbye!")
+            return
 
-            if user_input.lower() in {"exit", "quit"}:
-                print("Goodbye!")
-                break
+        print(f"\n=== You're in conversation {conversation_id}. Type 'help' for commands. ===\n")
 
-            print("🤖 Assistant is thinking...")
-            response_text = engine.send_message(
-                conversation_id=conversation_id, 
-                user_text=user_input, 
-                approval_callback=cli_tool_approval_callback, 
-                status_callback=cli_status_callback
-            )
-            print(f"\n 🤖 Assistant: {response_text}\n")
-            
-        except KeyboardInterrupt:
-            print("\nSession interrupted. Goodbye!")
-            break
-        except Exception as e:
-            print(f"\n ❌ Error encountered: {e}\n")
-            raise
+        # Inner loop: the actual chat for the selected conversation
+        while True:
+            try:
+                user_input = input("👤 You: ").strip()
+                if not user_input:
+                    continue
+
+                lowered = user_input.lower()
+
+                if lowered in {"exit", "quit"}:
+                    print("Goodbye!")
+                    return
+
+                if lowered == "menu":
+                    break  # back to outer loop -> pick_conversation again
+
+                if lowered == "history":
+                    render_conversation_history(conversation_id)
+                    continue
+
+                if lowered == "tools":
+                    show_tool_calls_only(conversation_id)
+                    continue
+
+                if lowered == "help":
+                    print(IN_CHAT_HELP)
+                    continue
+
+                print("🤖 Assistant is thinking...")
+                response_text = engine.send_message(
+                    conversation_id=conversation_id,
+                    user_text=user_input,
+                    approval_callback=cli_tool_approval_callback,
+                    status_callback=cli_status_callback,
+                )
+                print(f"\n🤖 Assistant: {response_text}\n")
+
+            except KeyboardInterrupt:
+                print("\nSession interrupted. Goodbye!")
+                return
+            except Exception as e:
+                print(f"\n❌ Error encountered: {e}\n")
+                raise
+
 
 if __name__ == "__main__":
     run_assistant_cli()
 
 ============================================================
-FILE: test.py
+FILE: cli\conversation_ui.py
 ============================================================
 
-from database.connection import DATABASE_PATH, get_connection
 
-print(f"The live database is located exactly here:\n{DATABASE_PATH}\n")
+import json
+import textwrap
 
-conn = get_connection()
-rows = conn.execute("SELECT id, tool_name, created_at FROM tool_logs ORDER BY id DESC LIMIT 5;").fetchall()
+from queries.conversation_queries import (
+    get_all_conversations,
+    get_conversation_by_id,
+    update_conversation_title,
+)
+from queries.message_queries import get_messages_by_conversation
+from queries.tool_log_queries import get_tool_logs_by_conversation
+from managers.conversation_manager import start_new_conversation
 
-print("The 5 most recent tool logs in this database:")
-for row in rows:
-    print(f"Log ID: {row['id']} | Tool: {row['tool_name']} | Time: {row['created_at']}")
-    
-conn.close()
+
+SEPARATOR = "─" * 60
+
+ROLE_ICONS = {
+    "user": "👤 You",
+    "assistant": "🤖 Assistant",
+    "system": "🗒️  System",
+}
+
+
+def print_separator() -> None:
+    print(SEPARATOR)
+
+
+def _truncate(text: str, width: int = 100) -> str:
+    text = text.replace("\n", " ")
+    return text if len(text) <= width else text[: width - 3] + "..."
+
+
+def _format_timestamp(created_at: str) -> str:
+    # created_at comes from SQLite as "YYYY-MM-DD HH:MM:SS"
+    return created_at if created_at else "unknown time"
+
+
+
+
+def display_conversation_list() -> list[dict]:
+    """Prints a numbered list of all conversations. Returns the list used."""
+    conversations = get_all_conversations()
+    print_separator()
+    if not conversations:
+        print("No conversations yet. You'll start a fresh one.")
+        print_separator()
+        return conversations
+
+    print("📂 Your Conversations:\n")
+    for idx, conv in enumerate(conversations, start=1):
+        print(f"  [{idx}] (id={conv['id']}) \"{conv['title']}\"  "
+              f"— created {_format_timestamp(conv['created_at'])}")
+    print_separator()
+    return conversations
+
+
+def main_menu(user_name: str) -> str:
+    """Top-level menu. Returns one of: 'new', 'resume', 'rename', 'exit'."""
+    print_separator()
+    print(f"=== Hello, {user_name}! What would you like to do? ===")
+    print("  [1] Start a NEW conversation")
+    print("  [2] Resume an EXISTING conversation")
+    print("  [3] Rename a conversation")
+    print("  [4] Exit")
+    print_separator()
+
+    choice = input("👉 Choose an option (1-4): ").strip()
+    return {
+        "1": "new",
+        "2": "resume",
+        "3": "rename",
+        "4": "exit",
+    }.get(choice, "invalid")
+
+
+def prompt_pick_conversation(conversations: list[dict]) -> dict | None:
+    """Given a displayed list, ask the user to pick one by number. Returns the row or None."""
+    if not conversations:
+        return None
+    raw = input("👉 Enter the [number] of the conversation: ").strip()
+    if not raw.isdigit():
+        print("⚠️  Please enter a valid number.")
+        return None
+    index = int(raw) - 1
+    if index < 0 or index >= len(conversations):
+        print("⚠️  That number isn't in the list.")
+        return None
+    return conversations[index]
+
+
+
+
+def render_conversation_history(conversation_id: int) -> None:
+    """
+    Prints the full transcript of a conversation: user/assistant messages
+    AND tool executions, interleaved in chronological order — so tool
+    calls show up inline exactly where they happened, no separate log view needed.
+    """
+    messages = get_messages_by_conversation(conversation_id)
+    tool_logs = get_tool_logs_by_conversation(conversation_id)
+
+    # Merge both streams into one timeline, sorted by created_at then id
+    # (id is a stable tiebreaker for same-second timestamps)
+    timeline = []
+    for m in messages:
+        timeline.append((m["created_at"], m["id"], "message", m))
+    for t in tool_logs:
+        timeline.append((t["created_at"], t["id"], "tool", t))
+    timeline.sort(key=lambda row: (row[0], row[1]))
+
+    print_separator()
+    print(f"📜 Conversation History (id={conversation_id})")
+    print_separator()
+
+    if not timeline:
+        print("(No messages yet — this conversation is empty.)")
+        print_separator()
+        return
+
+    for _, _, kind, row in timeline:
+        if kind == "message":
+            icon = ROLE_ICONS.get(row["role"], row["role"])
+            print(f"\n{icon}  [{_format_timestamp(row['created_at'])}]")
+            print(textwrap.fill(row["content"], width=90, initial_indent="  ", subsequent_indent="  "))
+        else:
+            status_icon = "✅" if row["status"] == "success" else "❌"
+            print(f"\n  {status_icon} ⚙️  Tool: {row['tool_name']}  [{_format_timestamp(row['created_at'])}]")
+            print(f"     args:   {_truncate(row['arguments'], 90)}")
+            if row.get("output"):
+                print(f"     output: {_truncate(str(row['output']), 90)}")
+            if row.get("error_message"):
+                print(f"     error:  {row['error_message']}")
+
+    print()
+    print_separator()
+
+
+def show_tool_calls_only(conversation_id: int) -> None:
+    """Quick view: just the tool execution log for the current conversation, no chat text."""
+    tool_logs = get_tool_logs_by_conversation(conversation_id)
+    print_separator()
+    print(f"⚙️  Tool Calls for Conversation {conversation_id}")
+    print_separator()
+    if not tool_logs:
+        print("(No tools have been run in this conversation yet.)")
+    for t in tool_logs:
+        status_icon = "✅" if t["status"] == "success" else "❌"
+        print(f"\n{status_icon} {t['tool_name']}  [{_format_timestamp(t['created_at'])}]")
+        print(f"   args:   {_truncate(t['arguments'], 90)}")
+        if t.get("output"):
+            print(f"   output: {_truncate(str(t['output']), 90)}")
+        if t.get("error_message"):
+            print(f"   error:  {t['error_message']}")
+    print()
+    print_separator()
+
+
+
+
+def rename_conversation_flow() -> None:
+    conversations = display_conversation_list()
+    if not conversations:
+        return
+    target = prompt_pick_conversation(conversations)
+    if target is None:
+        return
+    new_title = input(f"✏️  New title for \"{target['title']}\": ").strip()
+    if not new_title:
+        print("⚠️  Title cannot be empty. Cancelled.")
+        return
+    try:
+        updated = update_conversation_title(target["id"], new_title)
+        print(f"✅ Renamed to \"{updated['title']}\".")
+    except ValueError as e:
+        print(f"⚠️  {e}")
+
+
+
+
+def choose_or_create_conversation(user_id: int) -> int | None:
+    """
+    Drives the full menu loop until the user picks a conversation to chat in
+    (new or resumed) or chooses to exit.
+
+    Returns:
+        conversation_id (int) to start chatting in, or None if the user chose to exit.
+    """
+    while True:
+        action = main_menu_dispatch(user_id)
+        if action is not None:
+            return action
+
+
+def main_menu_dispatch(user_id: int):
+    """Single pass through the menu. Returns conversation_id, None (exit), or False (loop again)."""
+    # Need the user's display name for the greeting — caller already has it,
+    # but to keep this function self-contained we just use a generic greeting.
+    choice = main_menu("there")
+
+    if choice == "new":
+        session = start_new_conversation(user_id=user_id, title="New Conversation")
+        print(f"\n✅ Started new conversation (id={session['id']}).")
+        return session["id"]
+
+    if choice == "resume":
+        conversations = display_conversation_list()
+        target = prompt_pick_conversation(conversations)
+        if target is None:
+            return False
+        render_conversation_history(target["id"])
+        return target["id"]
+
+    if choice == "rename":
+        rename_conversation_flow()
+        return False
+
+    if choice == "exit":
+        return None
+
+    print("⚠️  Invalid choice, please pick 1-4.")
+    return False
+
+============================================================
+FILE: cli\__init__.py
+============================================================
+
+
 
 ============================================================
 FILE: database\connection.py
@@ -386,7 +679,7 @@ FILE: engine\agent_engine.py
 import os
 import json
 from tools.registry import get_all_tools
-from engine.loop_protector import check_for_infinite_loop, _extract_paths
+from llm.loop_protector import check_for_infinite_loop, _extract_paths
 from engine.handle_permissions import determine_and_execute_tool
 from managers.conversation_manager import (
     compile_llm_context, save_user_message, save_assistant_message, log_api_usage
@@ -444,35 +737,35 @@ class AgentEngine:
             # 3. Check for tool calls
             if response.tool_calls:
                 turn_count += 1
-                
-                # We currently process one tool call at a time per turn
-                tool_call = response.tool_calls[0]
-                tool_name = tool_call.name
-                tool_args = tool_call.args
-                serialized_args = json.dumps(tool_args, sort_keys=True)
 
-                # Check for infinite loops
-                is_looping, loop_error, _ = check_for_infinite_loop(tool_call_history, tool_name, tool_args)
-                if is_looping:
-                    save_assistant_message(conversation_id, loop_error)
-                    return loop_error
+                for tool_call in response.tool_calls:
+                    tool_name = tool_call.name
+                    tool_args = tool_call.args
+                    serialized_args = json.dumps(tool_args, sort_keys=True)
 
-                # Execute tool
-                tool_output, status = determine_and_execute_tool(
-                    tool_name, tool_args, conversation_id, self.autonomous, approval_callback
-                )
+                    # Check for infinite loops
+                    is_looping, loop_error, _ = check_for_infinite_loop(tool_call_history, tool_name, tool_args)
+                    if is_looping:
+                        save_assistant_message(conversation_id, loop_error)
+                        return loop_error
 
-                # Record execution log in local memory
-                tool_call_history.append({
-                    'name': tool_name,
-                    'args_json': serialized_args,
-                    'status': status,
-                    'paths': _extract_paths(tool_name, tool_args) or set()
-                })
+                    # Execute tool
+                    tool_output, status = determine_and_execute_tool(
+                        tool_name, tool_args, conversation_id, self.autonomous, approval_callback
+                    )
 
-                # Append clean standard dicts for the next LLM iteration
-                db_messages.append({"role": "assistant", "tool_calls": [tool_call]})
-                db_messages.append({"role": "tool", "tool_name": tool_name, "content": tool_output})
+                    # Record execution log in local memory
+                    tool_call_history.append({
+                        'name': tool_name,
+                        'args_json': serialized_args,
+                        'status': status,
+                        'paths': _extract_paths(tool_name, tool_args) or set()
+                    })
+
+                    # Append clean standard dicts for the next LLM iteration
+                    db_messages.append({"role": "assistant", "tool_calls": [tool_call]})
+                    db_messages.append({"role": "tool", "tool_name": tool_name, "content": tool_output})
+
                 continue
             
             else:
@@ -483,7 +776,129 @@ class AgentEngine:
                 return final_text
 
 ============================================================
-FILE: engine\context_formatter.py
+FILE: engine\handle_permissions.py
+============================================================
+
+import json
+from tools.registry import execute_tool
+from managers.conversation_manager import log_tool_run
+
+def determine_and_execute_tool(
+    tool_name: str,
+    tool_args: dict,
+    conversation_id: int,
+    autonomous: bool,
+    approval_callback=None
+    ) -> tuple[str, str]:
+    """
+    Handles autonomous vs. supervised permission checks, executes the requested 
+    tool, and logs the execution output.
+    
+    Returns:
+        tool_output (str): The output of the tool execution or a permission error.
+        status (str): "success" or "error" reflecting the execution state.
+    """
+    
+    # 1. Handle Supervised Permission Check
+    if not autonomous:
+        if approval_callback is None:
+            raise ValueError("Engine is in supervised mode, but no approval_callback was provided.")
+        
+        approved = approval_callback(tool_name, tool_args)
+        if not approved:
+            tool_output = f"Error: Permission Denied. User refused execution of '{tool_name}'."
+            log_tool_run(
+                conversation_id, tool_name,
+                json.dumps(tool_args), "error", error_message="User denied permission."
+            )
+            return tool_output, "error"
+            
+    # 2. Execute the Tool (if autonomous, or if approved)
+    tool_output = execute_tool(tool_name, tool_args)
+    
+    # 3. Check for Errors in the Output
+    if isinstance(tool_output, dict):
+        has_error = any("Error:" in str(v) for v in tool_output.values())
+    else:
+        has_error = "Error:" in str(tool_output)
+        
+    status = "error" if has_error else "success"
+    
+    # 4. Log the Execution Details
+    log_tool_run(
+        conversation_id, tool_name, 
+        json.dumps(tool_args), status, output=tool_output
+    )
+    
+    return tool_output, status
+
+============================================================
+FILE: engine\thinking_configure.py
+============================================================
+
+# engine/thinking_configure.py
+from google.genai import types
+
+# Gemini 3.x supports thinking_level; 2.5 and earlier do not.
+THINKING_CAPABLE_PREFIX = "gemini-3"
+
+def supports_thinking(model_name: str) -> bool:
+    return model_name.lower().startswith(THINKING_CAPABLE_PREFIX)
+
+def get_thinking_config(model_name: str) -> types.ThinkingConfig | None:
+    if supports_thinking(model_name):
+        return types.ThinkingConfig(thinking_level="high")
+    return None
+
+============================================================
+FILE: llm\base_provider.py
+============================================================
+
+from abc import ABC, abstractmethod
+from typing import List, Dict, Any, Callable
+from .schemas import LLMResponse
+
+class BaseLLMProvider(ABC):
+    """
+    The blueprint for all LLM providers. 
+    Any new provider (Gemini, OpenAI, Groq) MUST implement these methods.
+    """
+    def __init__(self, api_key: str, model_name: str):
+        self.api_key = api_key
+        self.model_name = model_name
+
+    @abstractmethod
+    def format_messages(self, db_messages: List[Dict[str, Any]]) -> Any:
+        """
+        Converts standard database messages (e.g., [{"role": "user", "content": "hi"}])
+        into the specific format required by the LLM SDK.
+        """
+        pass
+
+    @abstractmethod
+    def generate_content(
+        self, 
+        messages: Any, 
+        tools: List[Callable], 
+        system_instruction: str = "",
+        **kwargs
+    ) -> LLMResponse:
+        """
+        Executes the LLM generation.
+        
+        Args:
+            messages: The formatted messages from format_messages().
+            tools: A dynamic list of Python functions (e.g., from get_all_tools()).
+                   The provider is responsible for parsing these dynamically.
+            system_instruction: The base system prompt.
+            
+        Returns:
+            LLMResponse: Our standardized schema containing text, tool_calls, and token counts.
+        """
+        pass
+
+============================================================
+FILE: llm\context_formatter.py
 ============================================================
 
 # FILE: engine/context_formatter.py
@@ -504,6 +919,10 @@ def format_context(db_messages: list[dict]) -> tuple[str, list[dict]]:
         "2. BATCH OPERATIONS (NO SEQUENTIAL SPAMMING): Whenever possible, batch multiple actions into a single tool call. "
         "If a tool accepts arrays or lists (e.g., reading/writing multiple files, processing multiple database rows), "
         "process them all in ONE single turn. Never do sequentially what you can do simultaneously.\n"
+        "2b. PARALLEL INDEPENDENT ACTIONS: If a task requires two or more DIFFERENT tools whose"
+        "results do not depend on each other, request all of them in the same turn rather than"
+        "waiting for one to complete before issuing the next. Only run tools sequentially when a"
+        "later call genuinely needs the output of an earlier one."
         "3. HANDLE ERRORS SMARTLY: If a tool returns an error (e.g., 'File not found', 'Invalid input'), "
         "DO NOT blindly repeat the exact same request. Analyze the error, adjust your parameters, try a different approach, "
         "or immediately stop and ask the user for clarification.\n"
@@ -538,7 +957,7 @@ def format_context(db_messages: list[dict]) -> tuple[str, list[dict]]:
     return system_instruction, standardized_messages
 
 ============================================================
-FILE: engine\generate_with_retry.py
+FILE: llm\generate_with_retry.py
 ============================================================
 
 # FILE: engine/generate_with_retry.py
@@ -613,64 +1032,7 @@ def generate_with_retry(
     raise RuntimeError("No response returned after multiple retries.")
 
 ============================================================
-FILE: engine\handle_permissions.py
-============================================================
-
-import json
-from tools.registry import execute_tool
-from managers.conversation_manager import log_tool_run
-
-def determine_and_execute_tool(
-    tool_name: str,
-    tool_args: dict,
-    conversation_id: int,
-    autonomous: bool,
-    approval_callback=None
-    ) -> tuple[str, str]:
-    """
-    Handles autonomous vs. supervised permission checks, executes the requested 
-    tool, and logs the execution output.
-    
-    Returns:
-        tool_output (str): The output of the tool execution or a permission error.
-        status (str): "success" or "error" reflecting the execution state.
-    """
-    
-    # 1. Handle Supervised Permission Check
-    if not autonomous:
-        if approval_callback is None:
-            raise ValueError("Engine is in supervised mode, but no approval_callback was provided.")
-        
-        approved = approval_callback(tool_name, tool_args)
-        if not approved:
-            tool_output = f"Error: Permission Denied. User refused execution of '{tool_name}'."
-            log_tool_run(
-                conversation_id, tool_name,
-                json.dumps(tool_args), "error", error_message="User denied permission."
-            )
-            return tool_output, "error"
-            
-    # 2. Execute the Tool (if autonomous, or if approved)
-    tool_output = execute_tool(tool_name, tool_args)
-    
-    # 3. Check for Errors in the Output
-    if isinstance(tool_output, dict):
-        has_error = any("Error:" in str(v) for v in tool_output.values())
-    else:
-        has_error = "Error:" in str(tool_output)
-        
-    status = "error" if has_error else "success"
-    
-    # 4. Log the Execution Details
-    log_tool_run(
-        conversation_id, tool_name, 
-        json.dumps(tool_args), status, output=tool_output
-    )
-    
-    return tool_output, status
-
-============================================================
-FILE: engine\loop_protector.py
+FILE: llm\loop_protector.py
 ============================================================
 
 import json
@@ -692,7 +1054,6 @@ def _extract_paths(tool_name: str, tool_args: dict) -> set[str] | None:
         except Exception:
             return None
     return None
-
 
 def check_for_infinite_loop(
     tool_call_history: list[dict], tool_name: str, tool_args: dict
@@ -718,71 +1079,6 @@ def check_for_infinite_loop(
         return True, f"Error: Halting. '{tool_name}' already succeeded once with these exact params: {tool_args}.", serialized_args
     
     return False, None, serialized_args
-
-============================================================
-FILE: engine\thinking_configure.py
-============================================================
-
-# engine/thinking_configure.py
-from google.genai import types
-
-# Gemini 3.x supports thinking_level; 2.5 and earlier do not.
-THINKING_CAPABLE_PREFIX = "gemini-3"
-
-def supports_thinking(model_name: str) -> bool:
-    return model_name.lower().startswith(THINKING_CAPABLE_PREFIX)
-
-def get_thinking_config(model_name: str) -> types.ThinkingConfig | None:
-    if supports_thinking(model_name):
-        return types.ThinkingConfig(thinking_level="high")
-    return None
-
-============================================================
-FILE: llm\base_provider.py
-============================================================
-
-from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Callable
-from .schemas import LLMResponse
-
-class BaseLLMProvider(ABC):
-    """
-    The blueprint for all LLM providers. 
-    Any new provider (Gemini, OpenAI, Groq) MUST implement these methods.
-    """
-    def __init__(self, api_key: str, model_name: str):
-        self.api_key = api_key
-        self.model_name = model_name
-
-    @abstractmethod
-    def format_messages(self, db_messages: List[Dict[str, Any]]) -> Any:
-        """
-        Converts standard database messages (e.g., [{"role": "user", "content": "hi"}])
-        into the specific format required by the LLM SDK.
-        """
-        pass
-
-    @abstractmethod
-    def generate_content(
-        self, 
-        messages: Any, 
-        tools: List[Callable], 
-        system_instruction: str = "",
-        **kwargs
-    ) -> LLMResponse:
-        """
-        Executes the LLM generation.
-        
-        Args:
-            messages: The formatted messages from format_messages().
-            tools: A dynamic list of Python functions (e.g., from get_all_tools()).
-                   The provider is responsible for parsing these dynamically.
-            system_instruction: The base system prompt.
-            
-        Returns:
-            LLMResponse: Our standardized schema containing text, tool_calls, and token counts.
-        """
-        pass
 
 ============================================================
 FILE: llm\provider_factory.py
@@ -839,8 +1135,8 @@ from google.genai import types
 from ..base_provider import BaseLLMProvider
 from ..schemas import LLMResponse, ToolCall
 from utils.native_types_helpers import _to_native_types
-from engine.context_formatter import format_context
-from engine.generate_with_retry import generate_with_retry
+from llm.context_formatter import format_context
+from llm.generate_with_retry import generate_with_retry
 from engine.thinking_configure import get_thinking_config
 
 class GeminiProvider(BaseLLMProvider):
@@ -1933,7 +2229,7 @@ FILE: tests\test_engine_retry.py
 # FILE: tests/test_engine_retry.py
 import unittest
 from unittest.mock import patch, MagicMock
-from engine.generate_with_retry import generate_with_retry
+from llm.generate_with_retry import generate_with_retry
 
 class TestEngineRetry(unittest.TestCase):
     def setUp(self):
@@ -2167,21 +2463,21 @@ def _resolve_safe_path(path: str) -> str | None:
         return None
     return full_path
 
-def read_files(paths_json: str) -> dict:
-    """ 
-    Safely reads multiple files from the sandboxed workspace in a single turn. 
-    
-    Args:
-        paths_json: A JSON-formatted string representing a LIST of file paths.
-        Example EXACT format: '["file1.txt", "src/main.py"]'
+def read_files(paths: list[str]) -> dict:
     """
-    try:
-        paths = json.loads(paths_json)
-    except Exception as e:
-        return {"error": f"Invalid JSON format for paths_json: {e}"}
-    
+    Safely reads multiple files from the sandboxed workspace in a single turn.
+
+    Args:
+        paths: A list of file paths, e.g. ["file1.txt", "src/main.py"]
+    """
     if not isinstance(paths, list):
-        return {"error": "Expected a JSON list of paths."}
+        return {"error": "Expected a list of paths."}
+    # everything below this is unchanged — no json.loads needed
+    unique_paths = []
+    for p in paths:
+        if p and p not in unique_paths:
+            unique_paths.append(p)
+    ...
 
     # Deduplicate paths to prevent redundant read actions
     unique_paths = []
@@ -2208,25 +2504,17 @@ def read_files(paths_json: str) -> dict:
             
     return results
 
-def write_files(files_json: str) -> dict:
-    """ 
-    Safely writes multiple files to disk inside the sandboxed workspace. 
-    
-    Args:
-        files_json: A JSON-formatted string representing a LIST of dictionary objects.
-        Each dictionary MUST have 'path' and 'content' keys.
-        Example EXACT format: '[{"path": "hello.txt", "content": "print('hi')"}]'
+def write_files(files: list[dict]) -> dict:
     """
-    try:
-        files = json.loads(files_json)
-    except Exception as e:
-        return {"error": f"Invalid JSON format for files_json: {e}"}
+    Safely writes multiple files to disk inside the sandboxed workspace.
 
+    Args:
+        files: A list of objects, each with 'path' and 'content' keys.
+               e.g. [{"path": "hello.txt", "content": "print('hi')"}]
+    """
     if not isinstance(files, list):
-        return {"error": "Expected a JSON list of file objects."}
-
-    # Deduplicate files by tracking unique paths.
-    # If duplicates are passed, only write the latest content for each path.
+        return {"error": "Expected a list of file objects."}
+    
     unique_files = {}
     for file_info in files:
         if not isinstance(file_info, dict):

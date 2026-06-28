@@ -4,8 +4,8 @@ from google.genai import types
 from ..base_provider import BaseLLMProvider
 from ..schemas import LLMResponse, ToolCall
 from utils.native_types_helpers import _to_native_types
-from engine.context_formatter import format_context
-from engine.generate_with_retry import generate_with_retry
+from llm.context_formatter import format_context
+from llm.generate_with_retry import generate_with_retry
 from engine.thinking_configure import get_thinking_config
 
 class GeminiProvider(BaseLLMProvider):

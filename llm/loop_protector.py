@@ -18,7 +18,6 @@ def _extract_paths(tool_name: str, tool_args: dict) -> set[str] | None:
             return None
     return None
 
-
 def check_for_infinite_loop(
     tool_call_history: list[dict], tool_name: str, tool_args: dict
 ) -> tuple[bool, str | None, str]:

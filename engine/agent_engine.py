@@ -3,7 +3,7 @@
 import os
 import json
 from tools.registry import get_all_tools
-from engine.loop_protector import check_for_infinite_loop, _extract_paths
+from llm.loop_protector import check_for_infinite_loop, _extract_paths
 from engine.handle_permissions import determine_and_execute_tool
 from managers.conversation_manager import (
     compile_llm_context, save_user_message, save_assistant_message, log_api_usage

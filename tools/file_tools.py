@@ -27,13 +27,6 @@ def read_files(paths: list[str]) -> dict:
     for p in paths:
         if p and p not in unique_paths:
             unique_paths.append(p)
-    ...
-
-    # Deduplicate paths to prevent redundant read actions
-    unique_paths = []
-    for p in paths:
-        if p and p not in unique_paths:
-            unique_paths.append(p)
 
     results = {}
     for path in unique_paths:
