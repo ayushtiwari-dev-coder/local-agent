@@ -53,7 +53,7 @@ class GeminiProvider(BaseLLMProvider):
         return gemini_messages
 
     def generate_content(self, messages: List[Dict[str, Any]], tools: List[Callable], system_instruction: str = "", **kwargs) -> LLMResponse:
-        # 1. Extract app-wide logic
+        # 1. Extract app-wide logic using your new file!
         db_sys_inst, standard_msgs = format_context(messages)
         final_system_instruction = f"{system_instruction}\n{db_sys_inst}".strip()
         
@@ -66,20 +66,36 @@ class GeminiProvider(BaseLLMProvider):
             config_params["system_instruction"] = final_system_instruction
         if tools:
             config_params["tools"] = tools
-            
         thinking_cfg = get_thinking_config(self.model_name)
         if thinking_cfg:
             config_params["thinking_config"] = thinking_cfg
-            
         config = types.GenerateContentConfig(**config_params)
         
-        # 4. Use existing retry logic
+        
+        def make_gemini_request():
+            return self.client.models.generate_content(
+                model=self.model_name,
+                contents=gemini_messages,
+                config=config
+            )
+            
+        # Define the Gemini-specific 429 check
+        def is_gemini_quota_error(e):
+            exc_str = str(e)
+            exc_class = type(e).__name__
+            return (
+                "ResourceExhausted" in exc_class or
+                "429" in exc_str or
+                "quota" in exc_str.lower()
+            )
+
+        
+        # 4. Use the generic retry template
         response = generate_with_retry(
-            client=self.client, 
-            model_name=self.model_name, 
-            gemini_messages=gemini_messages, 
-            config=config, 
-            status_callback=kwargs.get("status_callback")
+            request_fn=make_gemini_request,
+            is_quota_error_fn=is_gemini_quota_error,
+            status_callback=kwargs.get("status_callback"),
+            max_attempts=3
         )
         return self._parse_response(response)
 

@@ -19,7 +19,7 @@ def log_tool_execution(
         output_str = json.dumps(output, ensure_ascii=False)
     else:
         output_str = str(output) if output is not None else None
-    # ---------------------------------------------------------------------------------------------
+
 
     query = "INSERT INTO tool_logs (conversation_id, tool_name, arguments, output, status, error_message) VALUES (?, ?, ?, ?, ?, ?);"
     
