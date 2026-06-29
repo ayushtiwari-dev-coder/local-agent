@@ -3,10 +3,7 @@ from typing import List, Dict, Any, Callable
 from .schemas import LLMResponse
 
 class BaseLLMProvider(ABC):
-    """
-    The blueprint for all LLM providers. 
-    Any new provider (Gemini, OpenAI, Groq) MUST implement these methods.
-    """
+    
     def __init__(self, api_key: str, model_name: str):
         self.api_key = api_key
         self.model_name = model_name

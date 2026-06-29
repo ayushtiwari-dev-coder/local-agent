@@ -16,10 +16,7 @@ def trigger_background_summary(api_key: str, model_name: str, conversation_id: i
     thread.start()
 
 def _run_summary_workflow(api_key: str, model_name: str, conversation_id: int) -> None:
-    """
-    The background worker function. Checks if there are more than 10 un-summarized
-    messages, queries the LLM (via the abstract provider factory), and updates the summaries table.
-    """
+  
     # 1. Fetch old summary and determine the last message ID we summarized
     summary_record = get_summary_by_conversation(conversation_id)
     last_msg_id = summary_record["last_summarized_message_id"] if summary_record else 0

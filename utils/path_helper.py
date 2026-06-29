@@ -1,4 +1,5 @@
 import os
+from dotenv import load_dotenv
 
 def get_project_root() -> str:
     """
@@ -29,7 +30,7 @@ def load_env_file() -> None:
 
     try:
         # Attempt standard python-dotenv approach with explicit absolute path
-        from dotenv import load_dotenv
+        
         load_dotenv(dotenv_path=env_path)
     except ImportError:
         # Standard library fallback to avoid dependency errors on local machines
