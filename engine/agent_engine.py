@@ -13,11 +13,18 @@ from llm.provider_factory import LLMFactory
 
 class AgentEngine:
     def __init__(self, provider_name: str = "gemini", model_name: str = "gemini-3.1-flash-lite", api_key: str | None = None, autonomous: bool = False):
-        resolved_key = api_key or os.environ.get("GEMINI_API_KEY")
-        if not resolved_key:
-            raise ValueError(f"API Key missing. Must pass api_key or set API key environment variable for {provider_name}.")
+        # Dynamically map the correct environment variable key name
+        env_var_map = {
+            "gemini": "GEMINI_API_KEY",
+            "groq": "GROQ_API_KEY"
+        }
+        env_var_name = env_var_map.get(provider_name.lower(), "GEMINI_API_KEY")
+        resolved_key = api_key or os.environ.get(env_var_name)
         
-        # Instantiate the provider through our new factory!
+        if not resolved_key:
+            raise ValueError(f"API Key missing. Must pass api_key or set environment variable {env_var_name} for {provider_name}.")
+            
+        # Instantiate the provider through the factory
         self.provider = LLMFactory.get_provider(provider_name, resolved_key, model_name)
         self.autonomous = autonomous
 

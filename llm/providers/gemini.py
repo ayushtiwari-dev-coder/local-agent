@@ -7,6 +7,7 @@ from utils.native_types_helpers import _to_native_types
 from llm.context_formatter import format_context
 from llm.generate_with_retry import generate_with_retry
 from engine.thinking_configure import get_thinking_config
+from utils.config_manager import get_thinking_level
 
 class GeminiProvider(BaseLLMProvider):
     def __init__(self, api_key: str, model_name: str):
@@ -56,29 +57,29 @@ class GeminiProvider(BaseLLMProvider):
         # 1. Extract app-wide logic using your new file!
         db_sys_inst, standard_msgs = format_context(messages)
         final_system_instruction = f"{system_instruction}\n{db_sys_inst}".strip()
-        
         # 2. Translate to Gemini format
         gemini_messages = self.format_messages(standard_msgs)
-        
         # 3. Build Gemini configuration
-        config_params = {"automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True)}
+        config_params = {"automatic_function_calling":
+        types.AutomaticFunctionCallingConfig(disable=True)}
         if final_system_instruction:
             config_params["system_instruction"] = final_system_instruction
         if tools:
             config_params["tools"] = tools
-        thinking_cfg = get_thinking_config(self.model_name)
+            
+        # Dynamically retrieve and apply the active thinking level
+        
+        active_thinking_level = get_thinking_level()
+        thinking_cfg = get_thinking_config(self.model_name, level=active_thinking_level)
+        
         if thinking_cfg:
             config_params["thinking_config"] = thinking_cfg
         config = types.GenerateContentConfig(**config_params)
-        
-        
+
         def make_gemini_request():
             return self.client.models.generate_content(
-                model=self.model_name,
-                contents=gemini_messages,
-                config=config
+                model=self.model_name, contents=gemini_messages, config=config
             )
-            
         # Define the Gemini-specific 429 check
         def is_gemini_quota_error(e):
             exc_str = str(e)
@@ -88,14 +89,10 @@ class GeminiProvider(BaseLLMProvider):
                 "429" in exc_str or
                 "quota" in exc_str.lower()
             )
-
-        
         # 4. Use the generic retry template
         response = generate_with_retry(
             request_fn=make_gemini_request,
-            is_quota_error_fn=is_gemini_quota_error,
-            status_callback=kwargs.get("status_callback"),
-            max_attempts=3
+            is_quota_error_fn=is_gemini_quota_error, status_callback=kwargs.get("status_callback"), max_attempts=3
         )
         return self._parse_response(response)
 
