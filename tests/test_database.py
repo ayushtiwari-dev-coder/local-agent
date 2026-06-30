@@ -1,3 +1,4 @@
+from operator import sub
 import os
 import sqlite3
 # Import both the connection, the table creator, AND the database path from our database package
@@ -26,7 +27,7 @@ def run_database_test() -> None:
 
     # 3. Query SQLite system table to verify the expected tables exist
     expected_tables = {
-        "users", "projects", "tasks", "conversations", 
+        "users", "projects", "tasks", "sub_tasks", "conversations", 
         "messages", "memories", "model_usage", "tool_logs","summaries"
     }
     
@@ -40,7 +41,7 @@ def run_database_test() -> None:
         if missing_tables:
             raise AssertionError(f"Missing expected tables in database: {missing_tables}")
             
-        print("Success: All 9 foundational tables verified in the schema.")
+        print("Success: All 10 foundational tables verified in the schema.")
         
     finally:
         conn.close()

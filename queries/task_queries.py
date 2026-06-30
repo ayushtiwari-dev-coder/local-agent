@@ -46,3 +46,19 @@ def update_task_status(task_id: int, status: str) -> dict:
     if rows_affected == 0:
         raise ValueError(f"Task with ID {task_id} not found.")
     return get_task_by_id(task_id)
+
+def get_orchestra_status_summary() -> list[dict]:
+    """
+    Fetches a list of all planned task chunks along with their corresponding 
+    granular sub-task checklist statuses for UI rendering [14].
+    """
+    # 1. Fetch all parent task chunks [14]
+    tasks_query = "SELECT id, title, status FROM tasks ORDER BY id ASC;"
+    tasks = execute_read(tasks_query) # [13]
+    
+    # 2. For each chunk, fetch its nested child sub-tasks [13, 14]
+    for t in tasks:
+        subtasks_query = "SELECT description, status FROM sub_tasks WHERE task_id = ? ORDER BY id ASC;"
+        t["sub_tasks"] = execute_read(subtasks_query, (t["id"],)) 
+        
+    return tasks

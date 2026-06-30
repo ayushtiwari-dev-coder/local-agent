@@ -33,7 +33,7 @@ def determine_and_execute_tool(
             return tool_output, "error"
             
     # 2. Execute the Tool (if autonomous, or if approved)
-    tool_output = execute_tool(tool_name, tool_args)
+    tool_output = execute_tool(tool_name, tool_args,conversation_id)
     
     # 3. Check for Errors in the Output
     if isinstance(tool_output, dict):

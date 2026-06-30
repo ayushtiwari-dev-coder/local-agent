@@ -17,8 +17,15 @@ DEFAULT_CONFIG = {
         }
     },
     "default_provider": "gemini",
-    "thinking_level": "high"
+    "thinking_level": "high",
+    
+    "orchestra": {
+        "manager": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+        "planner": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+        "executor": {"provider": "gemini", "model": "gemini-3.1-flash-lite"}
+    }
 }
+
 
 def load_config() -> dict:
     """Loads the config dictionary, fallback to defaults if file does not exist or is corrupted."""
@@ -121,3 +128,15 @@ def is_provider_configured(provider_name: str) -> bool:
 def has_any_provider_configured() -> bool:
     """Returns True if at least one provider has configured keys."""
     return is_provider_configured("gemini") or is_provider_configured("groq")
+
+def get_orchestra_route(role_name: str) -> dict:
+    """
+    Retrieves the configured provider and model routing for a specific agent role.
+    Falls back to the default Gemini configuration if the route is missing.
+    """
+    config = load_config()
+    orchestra = config.get("orchestra", DEFAULT_CONFIG["orchestra"])
+    return orchestra.get(
+        role_name, 
+        {"provider": "gemini", "model": "gemini-3.1-flash-lite"}
+    )
