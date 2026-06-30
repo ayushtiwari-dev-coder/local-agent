@@ -9,7 +9,7 @@ load_env_file()
 # Absolute imports from our packages
 from database.table_generator import create_tables
 from managers.user_manager import get_active_user, register_user
-from managers.conversation_manager import compile_llm_context  # noqa: F401 (kept for parity)
+from managers.conversation_manager import compile_llm_context  
 # --> Engine <--
 from engine.agent_engine import AgentEngine
 # --> New CLI UI layer <--

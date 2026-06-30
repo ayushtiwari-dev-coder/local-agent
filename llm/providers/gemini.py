@@ -36,7 +36,7 @@ class GeminiProvider(BaseLLMProvider):
                         fc_dict = {"name": tc.name, "args": tc.args}
                         metadata = tc.metadata if getattr(tc, "metadata", None) else {}
                         
-                        # ID belongs inside the function_call
+                        
                         if "id" in metadata:
                             fc_dict["id"] = metadata["id"]
                             
