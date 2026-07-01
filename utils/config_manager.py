@@ -140,3 +140,14 @@ def get_orchestra_route(role_name: str) -> dict:
         role_name, 
         {"provider": "gemini", "model": "gemini-3.1-flash-lite"}
     )
+# Append to the bottom of utils/config_manager.py
+def set_orchestra_route(role_name: str, provider_name: str, model_name: str) -> None:
+    """Saves custom routing properties (Provider + Model) for specialized Agent roles."""
+    config = load_config()
+    if "orchestra" not in config:
+        config["orchestra"] = {}
+    config["orchestra"][role_name] = {
+        "provider": provider_name.strip().lower(),
+        "model": model_name.strip()
+    }
+    save_config(config)
