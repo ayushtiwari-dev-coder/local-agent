@@ -68,3 +68,15 @@ def generate_with_retry(
             time.sleep(delay)
             
     raise RuntimeError("No response returned after multiple retries.")
+
+def is_quota_error(e: Exception) -> bool:
+    """
+    Checks if a raised exception represents a 429 rate limit, resource exhaustion,
+    or quota exhaustion across any integration provider.
+    """
+    exc_str = str(e).lower()
+    exc_class = type(e).__name__.lower()
+    
+    # Common signature flags used across major provider packages
+    quota_signals = ["resourceexhausted", "429", "quota", "ratelimit", "limit exceeded"]
+    return any(signal in exc_str or signal in exc_class for signal in quota_signals)

@@ -3380,7 +3380,6 @@ from queries.message_queries import create_message
 from queries.project_queries import get_all_projects, create_project
 from queries.task_queries import create_task, update_task_status
 from queries.subtask_queries import create_sub_task, update_sub_task_status, get_sub_tasks_by_task
-from managers.recovery_manager import ExecutionRecoveryManager
 
 # Global status delegate holder
 _orchestra_status_delegate = None
@@ -3410,10 +3409,7 @@ def trigger_multi_agent_workflow(conversation_id: int, task: str) -> str:
 
 def _run_background_orchestra(conversation_id: int, task: str) -> None:
     """The main background lifecycle loop. Coordinates: Project Check -> Planning -> DB -> Execution."""
-    active_task_ids = []
-    
-    # State Recovery Wrapper: Marks tasks as failed if the background orchestration crashes
-    with ExecutionRecoveryManager.safe_orchestration_run(active_task_ids):
+    try:
         project_id = _ensure_project_id()
         
         # 2. Spawn a silent Planner conversation thread
@@ -3448,7 +3444,6 @@ def _run_background_orchestra(conversation_id: int, task: str) -> None:
             
             chunk_task = create_task(project_id, chunk_title, description="Multi-agent plan chunk.")
             task_id = chunk_task["id"]
-            active_task_ids.append(task_id) # Track parent task ID for recovery rollbacks
             
             for step_desc in sub_tasks:
                 create_sub_task(task_id, step_desc)
@@ -3485,6 +3480,12 @@ def _run_background_orchestra(conversation_id: int, task: str) -> None:
             
         # Final Completion Notice
         save_assistant_message(conversation_id, "[BACKGROUND SYSTEM COMPLETED]: All planned task chunks have executed successfully!")
+
+    except Exception as e:
+        save_assistant_message(
+            conversation_id, 
+            f"[BACKGROUND ORCHESTRA ERROR]: Execution failed: {e}"
+        )
 
 def _ensure_project_id() -> int:
     projects = get_all_projects()

@@ -224,42 +224,48 @@ def validate_api_key(provider: str, key: str) -> bool:
     return False
 
 def configure_provider_flow(provider_name: str = None) -> bool:
-    """Interactively configure or modify the API key for a specified provider."""
+    """
+    Interactively configures or modifies the API key for an LLM provider.
+    Dynamically generates the selector menu based on registered config models.
+    """
     from utils import config_manager
+    
+    # Derives available providers dynamically
+    available_providers = list(SUPPORTED_MODELS.keys())
+    
     if not provider_name:
         print_separator()
-        print("🔧 Configure Provider API Key")
-        print("  [1] Gemini")
-        print("  [2] Groq")
+        print(" Configure Provider API Key")
+        for idx, prov in enumerate(available_providers, start=1):
+            print(f" [{idx}] {prov.upper()}")
         print_separator()
-        choice = input("👉 Select provider (1-2): ").strip()
-        if choice == "1":
-            provider_name = "gemini"
-        elif choice == "2":
-            provider_name = "groq"
+        
+        choice = input(f"Select provider (1-{len(available_providers)}): ").strip()
+        if choice.isdigit() and 1 <= int(choice) <= len(available_providers):
+            provider_name = available_providers[int(choice) - 1]
         else:
-            print("⚠️ Invalid selection. Returning.")
+            print("Invalid selection. Returning.")
             return False
-
+            
     print_separator()
-    print(f"🔑 Setting up API key for: [{provider_name.upper()}]")
-    key_input = input("👉 Paste your API key: ").strip()
+    print(f" Setting up API key for: [{provider_name.upper()}]")
+    key_input = input(" Paste your API key: ").strip()
     if not key_input:
-        print("⚠️ API Key cannot be blank.")
+        print(" API Key cannot be blank.")
         return False
-
-    # Validate the entered key
+        
+    # Validate the entered key dynamically
     is_valid = validate_api_key(provider_name, key_input)
     if is_valid:
-        print("✅ API key verified successfully!")
+        print(" API key verified successfully!")
     else:
-        allow = input("⚠️ Key validation failed. Allow saving this key anyway? (y/n): ").strip().lower()
+        allow = input(" Key validation failed. Allow saving this key anyway? (y/n): ").strip().lower()
         if allow != "y":
-            print("❌ Setup cancelled. Key not saved.")
+            print(" Setup cancelled. Key not saved.")
             return False
-
+            
     config_manager.set_provider_api_key(provider_name, key_input)
-    print(f"✅ Successfully configured {provider_name.upper()}!")
+    print(f" Successfully configured {provider_name.upper()}!")
     return True
 
 def provider_management_flow() -> None:

@@ -5,7 +5,7 @@ from ..base_provider import BaseLLMProvider
 from ..schemas import LLMResponse, ToolCall
 from utils.native_types_helpers import _to_native_types
 from llm.context_formatter import format_context
-from llm.generate_with_retry import generate_with_retry
+from llm.generate_with_retry import generate_with_retry,is_quota_error  
 from engine.thinking_configure import get_thinking_config
 from utils.config_manager import get_thinking_level
 
@@ -80,19 +80,10 @@ class GeminiProvider(BaseLLMProvider):
             return self.client.models.generate_content(
                 model=self.model_name, contents=gemini_messages, config=config
             )
-        # Define the Gemini-specific 429 check
-        def is_gemini_quota_error(e):
-            exc_str = str(e)
-            exc_class = type(e).__name__
-            return (
-                "ResourceExhausted" in exc_class or
-                "429" in exc_str or
-                "quota" in exc_str.lower()
-            )
         # 4. Use the generic retry template
         response = generate_with_retry(
             request_fn=make_gemini_request,
-            is_quota_error_fn=is_gemini_quota_error, status_callback=kwargs.get("status_callback"), max_attempts=3
+            is_quota_error_fn=is_quota_error, status_callback=kwargs.get("status_callback"), max_attempts=3
         )
         return self._parse_response(response)
 

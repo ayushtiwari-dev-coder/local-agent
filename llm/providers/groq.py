@@ -6,7 +6,7 @@ from groq import Groq
 from ..base_provider import BaseLLMProvider
 from ..schemas import LLMResponse, ToolCall
 from llm.context_formatter import format_context
-from llm.generate_with_retry import generate_with_retry
+from llm.generate_with_retry import generate_with_retry,is_quota_error
 
 def _function_to_schema(func: Callable) -> Dict[str, Any]:
     """Generates an OpenAI/Groq compatible tool schema from a Python callable."""
@@ -144,18 +144,9 @@ class GroqProvider(BaseLLMProvider):
                 params["tools"] = groq_tools
             return self.client.chat.completions.create(**params)
             
-        def is_groq_quota_error(e):
-            exc_str = str(e)
-            exc_class = type(e).__name__
-            return (
-                "RateLimitError" in exc_class or
-                "429" in exc_str or
-                "quota" in exc_str.lower()
-            )
-            
         response = generate_with_retry(
             request_fn=make_groq_request,
-            is_quota_error_fn=is_groq_quota_error,
+            is_quota_error_fn=is_quota_error,
             status_callback=kwargs.get("status_callback"),
             max_attempts=3
         )
