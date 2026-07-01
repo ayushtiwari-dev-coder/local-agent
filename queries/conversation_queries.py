@@ -25,7 +25,7 @@ def get_all_conversations() -> list[dict]:
     """
     Retrieves all conversations (newest first).
     """
-    query = "SELECT id, user_id, title, created_at FROM conversations ORDER BY created_at DESC;"
+    query = "SELECT id, user_id, title, created_at FROM conversations WHERE user_id IS NOT NULL ORDER BY created_at DESC;"
     return execute_read(query)
 
 

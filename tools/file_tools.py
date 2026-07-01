@@ -1,6 +1,7 @@
 # FILE: tools/file_tools.py
 import os
 import json
+import subprocess
 
 SANDBOX_ROOT = os.path.abspath(
     os.path.join(os.path.expanduser("~"), ".local_workflow_agent", "workspace")
@@ -84,3 +85,33 @@ def write_files(files: list[dict]) -> dict:
             results[path] = f"Error: Failed to write file: {e}"
             
     return results
+
+
+
+def run_terminal_command(command: str) -> str:
+    """Executes a shell command inside the sandboxed workspace."""
+    try:
+        # Run command inside the safe sandbox root directory
+        result = subprocess.run(
+            command,
+            shell=True,
+            cwd=SANDBOX_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=15  # Prevent runaway processes
+        )
+        
+        # Combine stdout and stderr so test failures and tracebacks are never discarded
+        output_parts = []
+        if result.stdout:
+            output_parts.append(result.stdout)
+        if result.stderr:
+            output_parts.append(result.stderr)
+            
+        combined_output = "\n".join(output_parts).strip()
+        return combined_output or "[Command executed with no output]"
+        
+    except subprocess.TimeoutExpired:
+        return "Error: Command execution timed out (exceeded 15 seconds)."
+    except Exception as e:
+        return f"Error executing command: {e}"

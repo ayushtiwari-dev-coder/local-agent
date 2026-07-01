@@ -1,12 +1,13 @@
 # tools/registry.py
 import inspect
-from tools.file_tools import read_files, write_files
+from tools.file_tools import read_files, write_files,run_terminal_command   
 from tools.orchestra_tools import trigger_multi_agent_workflow  # NEW: Import orchestrator
 
 TOOL_REGISTRY = {
     "read_files": read_files,
     "write_files": write_files,
-    "trigger_multi_agent_workflow": trigger_multi_agent_workflow  # NEW: Register orchestrator
+    "run_terminal_command":run_terminal_command,
+    "trigger_multi_agent_workflow": trigger_multi_agent_workflow 
 }
 
 def get_all_tools() -> list:

@@ -4,13 +4,12 @@ import tempfile
 import os
 import sqlite3
 from unittest.mock import patch
-from queries.user_queries import create_user, get_user_by_id
+
+# Consolidated clean imports
 from database.table_generator import create_tables
-from queries.user_queries import create_user
-from queries.conversation_queries import create_conversation
+from queries.user_queries import create_user, get_user_by_id
+from queries.conversation_queries import create_conversation, get_conversation_by_id
 from queries.message_queries import create_message
-from queries.user_queries import create_user
-from queries.conversation_queries import get_conversation_by_id
 from queries.task_queries import get_task_by_id
 
 class TestDatabaseQueries(unittest.TestCase):
@@ -25,7 +24,6 @@ class TestDatabaseQueries(unittest.TestCase):
         self.db_patcher.start()
         
         # Initialize the tables in the temp db
-        
         create_tables()
 
     def tearDown(self):
@@ -34,8 +32,6 @@ class TestDatabaseQueries(unittest.TestCase):
 
     def test_create_and_fetch_user(self):
         """Tests standard creation and retrieval queries."""
-        
-        
         user = create_user("Test User", "testuser")
         self.assertEqual(user["username"], "testuser")
         self.assertIsNotNone(user["id"])
@@ -45,16 +41,12 @@ class TestDatabaseQueries(unittest.TestCase):
 
     def test_user_unique_constraint(self):
         """Edge Case: Cannot create two users with the identical username."""
-        
         create_user("User One", "unique_name")
         with self.assertRaisesRegex(ValueError, "is already taken"):
             create_user("User Two", "unique_name")
 
     def test_message_role_constraint(self):
         """Edge Case: SQLite message insertion throws ValueError if role is invalid."""
-        
-        
-        
         user = create_user("A", "A")
         conv = create_conversation(user["id"], "Test Title")
         
@@ -67,11 +59,8 @@ class TestDatabaseQueries(unittest.TestCase):
 
     def test_missing_data_exceptions(self):
         """Ensures get_*_by_id functions raise clean ValueErrors when IDs don't exist."""
-        
-        
         with self.assertRaises(ValueError):
             get_conversation_by_id(9999)
-            
         with self.assertRaises(ValueError):
             get_task_by_id(9999)
 

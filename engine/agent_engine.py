@@ -46,14 +46,20 @@ class AgentEngine:
         turn_count = 0
         MAX_TURNS = 15
 
+        # In engine/agent_engine.py (Inside send_message, inside the while True loop)
         while True:
             if turn_count >= MAX_TURNS:
                 error_msg = f"Error: Maximum tool execution limit ({MAX_TURNS} turns) reached."
                 save_assistant_message(conversation_id, error_msg)
                 return error_msg
-
+                
+            turn_count += 1
+            
+            # Emit a status update indicating a new API turn is beginning
+            if status_callback:
+                status_callback(f"Generating thoughts... [Turn #{turn_count}]")
+                
             try:
-                # 1. Generate content (Provider handles all formatting and retries natively)
                 response = self.provider.generate_content(
                     messages=db_messages,
                     tools=get_all_tools(),
@@ -61,42 +67,41 @@ class AgentEngine:
                 )
             except Exception as e:
                 raise RuntimeError(f"LLM API execution failed: {e}") from e
-
-            # 2. Log token usage
+                
             log_api_usage(conversation_id, self.provider.model_name, response.prompt_tokens, response.completion_tokens)
-
-            # 3. Check for tool calls
+            
             if response.tool_calls:
-                turn_count += 1
-
                 for tool_call in response.tool_calls:
                     tool_name = tool_call.name
                     tool_args = tool_call.args
                     serialized_args = json.dumps(tool_args, sort_keys=True)
-
-                    # Check for infinite loops
+                    
                     is_looping, loop_error, _ = check_for_infinite_loop(tool_call_history, tool_name, tool_args)
                     if is_looping:
                         save_assistant_message(conversation_id, loop_error)
                         return loop_error
-
-                    # Execute tool
+                        
+                    # Emit tool run status before execution
+                    if status_callback:
+                        status_callback(f"Executing tool '{tool_name}' with arguments: {tool_args}")
+                        
                     tool_output, status = determine_and_execute_tool(
                         tool_name, tool_args, conversation_id, self.autonomous, approval_callback
                     )
-
-                    # Record execution log in local memory
+                    
+                    # Emit tool completion status
+                    if status_callback:
+                        status_callback(f"Tool '{tool_name}' returned status: '{status}'")
+                    
                     tool_call_history.append({
                         'name': tool_name,
                         'args_json': serialized_args,
                         'status': status,
                         'paths': _extract_paths(tool_name, tool_args) or set()
                     })
-
-                    # Append clean standard dicts for the next LLM iteration
+                    
                     db_messages.append({"role": "assistant", "tool_calls": [tool_call]})
                     db_messages.append({"role": "tool", "tool_name": tool_name, "content": tool_output})
-
                 continue
             
             else:
