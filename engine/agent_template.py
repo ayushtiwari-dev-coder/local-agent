@@ -20,7 +20,7 @@ class AgentTemplate:
         model = route.get("model", "gemini-3.1-flash-lite")
         api_key = config_manager.get_provider_api_key(provider) # [53]
         
-        # 2. BREAK CIRCULAR IMPORT: Import AgentEngine inline at runtime [16]
+
         from engine.agent_engine import AgentEngine
         
         # 3. Instantiate and return the standard AgentEngine [16]

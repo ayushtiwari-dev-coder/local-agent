@@ -98,7 +98,7 @@ def run_terminal_command(command: str) -> str:
             cwd=SANDBOX_ROOT,
             capture_output=True,
             text=True,
-            timeout=15  # Prevent runaway processes
+            timeout=15  
         )
         
         # Combine stdout and stderr so test failures and tracebacks are never discarded

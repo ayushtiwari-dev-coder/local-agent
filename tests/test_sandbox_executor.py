@@ -95,6 +95,72 @@ class TestSandboxExecutor(unittest.TestCase):
             text=True,
             timeout=15
         )
+    @patch("subprocess.run")
+    @patch("builtins.input", return_value="y")
+    def test_run_local_fallback_destructive_command_allowed(self, mock_input, mock_subprocess_run):
+        """
+        Scenario 1: A dangerous command is parsed, user responds with 'y' (allow).
+        The execution should proceed through subprocess.run.
+        """
+        # Mock subprocess execution result
+        mock_response = MagicMock()
+        mock_response.stdout = "Deletion executed successfully."
+        mock_response.stderr = ""
+        mock_subprocess_run.return_value = mock_response
+
+        destructive_cmd = "rm -rf /tmp/test_workspace_sandbox_dummy"
+        
+        # Trigger local fallback directly
+        result = self.executor._run_local_fallback(destructive_cmd, timeout_seconds=15)
+        
+        # Verify user was prompted
+        mock_input.assert_called_once()
+        # Verify subprocess.run WAS executed
+        mock_subprocess_run.assert_called_once_with(
+            destructive_cmd, shell=True, cwd=self.sandbox_root, capture_output=True, text=True, timeout=15
+        )
+        self.assertEqual(result, "Deletion executed successfully.")
+
+    @patch("subprocess.run")
+    @patch("builtins.input", return_value="n")
+    def test_run_local_fallback_destructive_command_blocked(self, mock_input, mock_subprocess_run):
+        """
+        Scenario 2: A dangerous command is parsed, user responds with 'n' (block).
+        The execution should immediately exit, returning a blocked warning string.
+        """
+        destructive_cmd = "rm -rf /etc/hosts"
+        
+        # Trigger local fallback directly
+        result = self.executor._run_local_fallback(destructive_cmd, timeout_seconds=15)
+        
+        # Verify user was prompted
+        mock_input.assert_called_once()
+        # Verify subprocess.run was NEVER executed
+        mock_subprocess_run.assert_not_called()
+        self.assertIn("blocked by user", result)
+        self.assertIn("safety check", result)
+
+    @patch("subprocess.run")
+    @patch("builtins.input")
+    def test_run_local_fallback_safe_command_no_prompt(self, mock_input, mock_subprocess_run):
+        """
+        Scenario 3: A safe command is parsed.
+        The execution should run directly without interrupting or prompting the user.
+        """
+        mock_response = MagicMock()
+        mock_response.stdout = "Hello World"
+        mock_response.stderr = ""
+        mock_subprocess_run.return_value = mock_response
+
+        safe_cmd = "echo 'hello world'"
+        
+        result = self.executor._run_local_fallback(safe_cmd, timeout_seconds=15)
+        
+        # Verify user was NEVER prompted
+        mock_input.assert_not_called()
+        # Verify the command was executed
+        mock_subprocess_run.assert_called_once()
+        self.assertEqual(result, "Hello World")
 
 if __name__ == "__main__":
     unittest.main()

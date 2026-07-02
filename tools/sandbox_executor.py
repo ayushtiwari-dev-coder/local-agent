@@ -2,6 +2,7 @@ import os
 import logging
 import shlex  # Safe shell escaping from the standard library
 import docker
+from tools.security_guard import check_command_safety
 
 logger = logging.getLogger("tools.sandbox_executor")
 
@@ -42,7 +43,7 @@ class DockerSandboxExecutor:
                 mem_limit="512m",                 # Limits memory consumption
                 nano_cpus=1000000000,             # Limits to 1 CPU core
                 timeout=timeout_seconds,
-                remove=True,                      # Destroys the container instantly on completion
+                remove=True,                     
                 stdout=True,
                 stderr=True
             )
@@ -52,17 +53,27 @@ class DockerSandboxExecutor:
         except Exception as e:
             return f"Sandbox execution failure: {str(e)}"
 
+
     def _run_local_fallback(self, command: str, timeout_seconds: int) -> str:
         """Subprocess execution boundary fallback if Docker is offline."""
         import subprocess
+
+        is_safe, warning_reason = check_command_safety(command)
+        if not is_safe:
+            print("\n" + "=" * 60)
+            print("⚠️  [SECURITY WARNING] Potential Destructive Command Detected!")
+            print(f"Command: {command}")
+            print(f"Flagged as: {warning_reason}")
+            print("=" * 60)
+            
+
+            confirm = input("Do you want to allow this command to run? (y/n): ").strip().lower()
+            if confirm != 'y':
+                return f"Error: Execution blocked by user. Reason: Failed safety check ({warning_reason})."
+        
         try:
             result = subprocess.run(
-                command,
-                shell=True,
-                cwd=self.sandbox_root,
-                capture_output=True,
-                text=True,
-                timeout=timeout_seconds
+                command, shell=True, cwd=self.sandbox_root, capture_output=True, text=True, timeout=timeout_seconds
             )
             output = "\n".join(filter(None, [result.stdout, result.stderr])).strip()
             return output or "[Command executed with no output]"
