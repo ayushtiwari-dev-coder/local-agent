@@ -11,6 +11,7 @@ from queries.user_queries import create_user, get_user_by_id
 from queries.conversation_queries import create_conversation, get_conversation_by_id
 from queries.message_queries import create_message
 from queries.task_queries import get_task_by_id
+from queries.memory_queries import create_memory, search_memories
 
 class TestDatabaseQueries(unittest.TestCase):
     def setUp(self):
@@ -63,6 +64,29 @@ class TestDatabaseQueries(unittest.TestCase):
             get_conversation_by_id(9999)
         with self.assertRaises(ValueError):
             get_task_by_id(9999)
+
+    def test_memory_search_wildcard_matching(self):
+        """Verifies that search_memories matches keywords in both contents and categories."""
+        # 1. Write mock memories (lowercase inputs)
+        create_memory("The user prefers using Python 3.11", category="preferences")
+        create_memory("Project documentation initialized", category="system_logs")
+
+        # 2. Search keyword in content
+        matches_content = search_memories("Python")
+        self.assertEqual(len(matches_content), 1)
+        # Fix: Assert lowercase 'preferences' to match raw database values
+        self.assertEqual(matches_content[0]["category"], "preferences")
+        self.assertIn("Python 3.11", matches_content[0]["content"])
+
+        # 3. Search keyword in category (case insensitive search via LIKE query)
+        matches_category = search_memories("system")
+        self.assertEqual(len(matches_category), 1)
+        # Fix: Assert lowercase 'system_logs' to match raw database values
+        self.assertEqual(matches_category[0]["category"], "system_logs")
+
+        # 4. Search term with no matches
+        no_matches = search_memories("non-existent-key")
+        self.assertEqual(len(no_matches), 0)
 
 if __name__ == "__main__":
     unittest.main()

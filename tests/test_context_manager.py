@@ -5,6 +5,7 @@ from managers.conversation_manager import _estimate_tokens
 from managers.conversation_manager import compile_llm_context
 
 class TestContextManager(unittest.TestCase):
+
     def test_estimate_tokens_with_tiktoken(self):
         """Ensures tiktoken counts tokens correctly when available."""
         messages = [
@@ -54,6 +55,41 @@ class TestContextManager(unittest.TestCase):
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0]["content"], "Msg 2")
         self.assertEqual(result[1]["content"], "Msg 3")
+
+    @patch('managers.conversation_manager.get_connection')
+    @patch('managers.conversation_manager._estimate_tokens')
+    def test_compile_llm_context_preserves_summary_at_index_0(self, mock_estimate, mock_conn):
+        # Mock connection and cursor executions
+        mock_cursor = mock_conn.return_value.execute.return_value
+        
+        # 1. First DB query returns a summary record
+        mock_cursor.fetchone.side_effect = [
+            {"summary_text": "This is the summary.", "last_summarized_message_id": 10},
+        ]
+        
+        # 2. Second DB query returns subsequent raw messages (ID > 10)
+        mock_cursor.fetchall.return_value = [
+            {"role": "user", "content": "Msg 11"},
+            {"role": "assistant", "content": "Msg 12"},
+            {"role": "user", "content": "Msg 13"}
+        ]
+        
+        # Mock token estimations to trigger trimming:
+        # Loop 1: 1500 tokens (triggers trim)
+        # Loop 2: 900 tokens (falls under the 1000 limit)
+        mock_estimate.side_effect = [1500, 900]
+        
+        # Compile context with a narrow token budget
+        result = compile_llm_context(conversation_id=1, max_tokens=1000)
+        
+        # Assertions
+        # Total messages: Summary (system) + Msg 12 (assistant) + Msg 13 (user)
+        # Msg 11 should be popped first because has_summary is True, changing index to 1.
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0]["role"], "system")
+        self.assertEqual(result[0]["content"], "Summary of previous conversation history: This is the summary.")
+        self.assertEqual(result[1]["content"], "Msg 12")
+        self.assertEqual(result[2]["content"], "Msg 13")
 
 if __name__ == "__main__":
     unittest.main()
