@@ -47,25 +47,53 @@ def update_task_status(task_id: int, status: str) -> dict:
         raise ValueError(f"Task with ID {task_id} not found.")
     return get_task_by_id(task_id)
 
-def get_orchestra_status_summary() -> list[dict]:
-    """Fetches remaining (non-completed) task chunks and their active sub-tasks."""
-    # MODIFIED: Query tasks that are pending or in_progress, ignoring completed ones
-    tasks_query = """
-        SELECT id, title, status 
-        FROM tasks 
-        WHERE status != 'completed' 
-        ORDER BY id ASC;
+# queries/task_queries.py
+
+def get_orchestra_status_summary(conversation_id: int = None) -> list[dict]:
     """
-    tasks = execute_read(tasks_query)
-    
-    for t in tasks:
-        # MODIFIED: Query only remaining sub-tasks associated with these chunks
-        subtasks_query = """
-            SELECT description, status 
-            FROM sub_tasks 
-            WHERE task_id = ? AND status != 'completed'
+    Fetches task status summary.
+    If conversation_id is provided, returns ALL statuses (completed, in-progress, pending, failed) 
+    scoped strictly to that conversation.
+    If conversation_id is None, returns global active tasks (pending/in-progress) only.
+    """
+    if conversation_id is not None:
+        project_name = f"Project_Conv_{conversation_id}"
+        project_row = execute_read("SELECT id FROM projects WHERE name = ?;", (project_name,), fetch_one=True)
+        if not project_row:
+            return []
+        project_id = project_row["id"]
+        
+        # Scoped to conversation: Retrieve everything (completed, in_progress, pending, failed)
+        tasks_query = """
+            SELECT id, title, status
+            FROM tasks
+            WHERE project_id = ?
             ORDER BY id ASC;
         """
-        t["sub_tasks"] = execute_read(subtasks_query, (t["id"],))
+        tasks = execute_read(tasks_query, (project_id,))
+    else:
+        # Global dashboard: Retrieve active tasks only
+        tasks_query = """
+            SELECT id, title, status
+            FROM tasks
+            WHERE status IN ('pending', 'in_progress')
+            ORDER BY id ASC;
+        """
+        tasks = execute_read(tasks_query)
         
-    return tasks
+    remaining_tasks = []
+    for t in tasks:
+        # Retrieve all sub-tasks belonging to this task segment
+        subtasks_query = """
+            SELECT description, status
+            FROM sub_tasks
+            WHERE task_id = ?
+            ORDER BY id ASC;
+        """
+        active_subs = execute_read(subtasks_query, (t["id"],))
+        
+        task_dict = dict(t)
+        task_dict["sub_tasks"] = active_subs
+        remaining_tasks.append(task_dict)
+        
+    return remaining_tasks

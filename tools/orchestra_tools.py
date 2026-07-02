@@ -95,8 +95,8 @@ def _execute_plan_sequential(conversation_id: int, task_id_queue: list) -> None:
 def _run_background_orchestra(conversation_id: int, task: str) -> None:
     """The main background lifecycle loop."""
     try:
-        # 1. Setup project sandbox
-        project_id = _ensure_project_id()
+        # 1. Setup project sandbox isolated to this conversation
+        project_id = _ensure_project_id(conversation_id)
         
         # 2. Plan generation phase
         chunks = _generate_orchestra_plan(task)
@@ -116,7 +116,6 @@ def _run_background_orchestra(conversation_id: int, task: str) -> None:
             conversation_id, 
             "[BACKGROUND SYSTEM COMPLETED]: All planned task chunks have executed successfully!"
         )
-        
     except Exception as e:
         save_assistant_message(
             conversation_id, 
@@ -136,7 +135,26 @@ def trigger_multi_agent_workflow(conversation_id: int, task: str) -> str:
         "to check on their progress at any time."
     )
 
-def _ensure_project_id() -> int:
+def _ensure_project_id(conversation_id: int = None) -> int:
+    """
+    Ensures a project is configured. If conversation_id is provided, 
+    isolates tasks into a unique project for that conversation.
+    """
+    from database.helper import execute_read
+    
+    if conversation_id is not None:
+        project_name = f"Project_Conv_{conversation_id}"
+        project = execute_read("SELECT id FROM projects WHERE name = ?;", (project_name,), fetch_one=True)
+        if project:
+            return project["id"]
+        # Create a new isolated project for this conversation
+        new_project = create_project(
+            project_name, 
+            f"Auto-created workspace for Conversation #{conversation_id}"
+        )
+        return new_project["id"]
+    
+    # Fallback legacy logic
     projects = get_all_projects()
     if projects:
         return projects[0]["id"]
