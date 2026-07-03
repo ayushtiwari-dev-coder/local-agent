@@ -110,12 +110,13 @@ def compile_llm_context(conversation_id: int, max_tokens: int = MAX_CONTEXT_TOKE
         
         # If we are over budget, trim messages one-by-one
         while current_estimated_tokens > max_tokens and len(context_messages) > 1:
-            # Determine where the oldest message is. 
-            # If we have a summary at index 0, the oldest message is at index 1.
-            # If we do NOT have a summary, the oldest message is at index 0.
+
             trim_index = 1 if has_summary else 0
-            
-            # Remove the oldest message
+
+            # Protect the first user message from deletion!
+            if len(context_messages) > trim_index + 1 and context_messages[trim_index]["role"] == "user":
+                trim_index += 1 # Skip the user prompt, delete the next message instead
+
             context_messages.pop(trim_index)
             
             # Recalculate

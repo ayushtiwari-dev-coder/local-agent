@@ -109,7 +109,15 @@ def run_terminal_command(command: str) -> str:
             output_parts.append(result.stderr)
             
         combined_output = "\n".join(output_parts).strip()
-        return combined_output or "[Command executed with no output]"
+
+        if len(combined_output) > 1500:
+            combined_output = (
+                combined_output[:200] + 
+                "\n\n...[OUTPUT TRUNCATED TO SAVE TOKENS]...\n\n" + 
+                combined_output[-1200:]
+            )
+
+        return combined_output or "SUCESS: command executed perfectly without an error and ouput"
         
     except subprocess.TimeoutExpired:
         return "Error: Command execution timed out (exceeded 15 seconds)."

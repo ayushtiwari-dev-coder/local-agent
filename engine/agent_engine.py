@@ -94,15 +94,23 @@ class AgentEngine:
                         status_callback(f"Tool '{tool_name}' returned status: '{status}'")
                     
                     tool_call_history.append({
-                        'name': tool_name,
-                        'args_json': serialized_args,
-                        'status': status,
-                        'paths': _extract_paths(tool_name, tool_args) or set()
+                    'name': tool_name,
+                    'args_json': serialized_args,
+                    'status': status,
+                    'paths': _extract_paths(tool_name, tool_args) or set()
                     })
-                    
+
                     db_messages.append({"role": "assistant", "tool_calls": [tool_call]})
-                    db_messages.append({"role": "tool", "tool_name": tool_name, "content": tool_output})
-                continue
+                    
+                    if status == "success":
+                        formatted_output = f"SYSTEM: Action SUCCESS. DO NOT repeat this action. Review output and move to next step.\n\nOUTPUT:\n{tool_output}"
+                    else:
+                        formatted_output = f"SYSTEM: Action FAILED. Analyze the error below and change your approach.\n\nERROR:\n{tool_output}"
+
+                    db_messages.append({"role": "tool", "tool_name": tool_name, "content": formatted_output})
+                    # --- NEW CODE END ---
+                    
+                    continue
             
             else:
                 # 4. Final text response received

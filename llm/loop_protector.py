@@ -34,11 +34,11 @@ def check_for_infinite_loop(
                 failed_identical_calls += 1
 
     # Halt if it keeps trying the exact same failed action blindly
-    if failed_identical_calls >= 1:
+    if failed_identical_calls >= 3:
         return True, f"Error: Halting. '{tool_name}' already failed once with these exact params: {tool_args}.", serialized_args
         
     # Halt if it keeps repeating an action that already succeeded (wasting tokens)
-    if total_identical_calls >= 1:
+    if total_identical_calls >= 2:
         return True, f"Error: Halting. '{tool_name}' already succeeded once with these exact params: {tool_args}.", serialized_args
     
     return False, None, serialized_args

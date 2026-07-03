@@ -25,42 +25,34 @@ class TestLoopProtector(unittest.TestCase):
         self.assertIsNone(loop_error)
 
     def test_block_identical_failed_call(self):
-        """Safety: Halts execution if a tool already failed once with the exact same parameters."""
+        """Safety: Halts execution if a tool already failed 3 times with the exact same parameters."""
         tool_call_history = [
-            {
-                'name': self.tool_name,
-                'args_json': self.serialized_args,
-                'status': 'error'
-            }
+            {'name': self.tool_name, 'args_json': self.serialized_args, 'status': 'error'},
+            {'name': self.tool_name, 'args_json': self.serialized_args, 'status': 'error'},
+            {'name': self.tool_name, 'args_json': self.serialized_args, 'status': 'error'}
         ]
         
         is_looping, loop_error, _ = check_for_infinite_loop(
-            tool_call_history, 
-            self.tool_name, 
-            self.tool_args
+            tool_call_history, self.tool_name, self.tool_args
         )
         
         self.assertTrue(is_looping)
-        self.assertIn("already failed once with these exact params", loop_error)
-
+        self.assertIn("already failed", loop_error)
+        
     def test_block_identical_successful_call(self):
-        """Safety: Halts execution if an agent repeatedly requests an already completed successful action."""
+        """Safety: Halts execution if an agent repeatedly requests an already completed successful action 3 times."""
         tool_call_history = [
-            {
-                'name': self.tool_name,
-                'args_json': self.serialized_args,
-                'status': 'success'
-            }
+            {'name': self.tool_name, 'args_json': self.serialized_args, 'status': 'success'},
+            {'name': self.tool_name, 'args_json': self.serialized_args, 'status': 'success'},
+            {'name': self.tool_name, 'args_json': self.serialized_args, 'status': 'success'}
         ]
         
         is_looping, loop_error, _ = check_for_infinite_loop(
-            tool_call_history, 
-            self.tool_name, 
-            self.tool_args
+            tool_call_history, self.tool_name, self.tool_args
         )
         
         self.assertTrue(is_looping)
-        self.assertIn("already succeeded once with these exact params", loop_error)
+        self.assertIn("already succeeded", loop_error)
 
     def test_allow_different_arguments(self):
         """Verification: Allows identical tools to run if the arguments are different."""

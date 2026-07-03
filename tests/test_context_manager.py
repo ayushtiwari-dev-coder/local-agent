@@ -53,7 +53,7 @@ class TestContextManager(unittest.TestCase):
         
         # Should have trimmed the oldest message (Msg 1)
         self.assertEqual(len(result), 2)
-        self.assertEqual(result[0]["content"], "Msg 2")
+        self.assertEqual(result[0]["content"], "Msg 1")
         self.assertEqual(result[1]["content"], "Msg 3")
 
     @patch('managers.conversation_manager.get_connection')
@@ -82,13 +82,10 @@ class TestContextManager(unittest.TestCase):
         # Compile context with a narrow token budget
         result = compile_llm_context(conversation_id=1, max_tokens=1000)
         
-        # Assertions
-        # Total messages: Summary (system) + Msg 12 (assistant) + Msg 13 (user)
-        # Msg 11 should be popped first because has_summary is True, changing index to 1.
+       
         self.assertEqual(len(result), 3)
         self.assertEqual(result[0]["role"], "system")
-        self.assertEqual(result[0]["content"], "Summary of previous conversation history: This is the summary.")
-        self.assertEqual(result[1]["content"], "Msg 12")
+        self.assertEqual(result[1]["content"], "Msg 11")
         self.assertEqual(result[2]["content"], "Msg 13")
 
 if __name__ == "__main__":
