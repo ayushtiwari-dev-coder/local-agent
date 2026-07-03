@@ -71,19 +71,24 @@ class AgentEngine:
             log_api_usage(conversation_id, self.provider.model_name, response.prompt_tokens, response.completion_tokens)
             
             if response.tool_calls:
+                db_messages.append({"role": "assistant", "tool_calls": response.tool_calls})
+                
                 for tool_call in response.tool_calls:
                     tool_name = tool_call.name
                     tool_args = tool_call.args
                     serialized_args = json.dumps(tool_args, sort_keys=True)
                     
-                    is_looping, loop_error, _ = check_for_infinite_loop(tool_call_history, tool_name, tool_args)
+                    is_looping, loop_error, _ = check_for_infinite_loop(
+                        tool_call_history, tool_name, tool_args
+                    )
+                    
                     if is_looping:
                         save_assistant_message(conversation_id, loop_error)
                         return loop_error
                         
                     # Emit tool run status before execution
                     if status_callback:
-                        status_callback(f"Executing tool '{tool_name}' with arguments: {tool_args}")
+                        status_callback(f"Executing tool '{tool_name}' with arguments:\n{tool_args}")
                         
                     tool_output, status = determine_and_execute_tool(
                         tool_name, tool_args, conversation_id, self.autonomous, approval_callback
@@ -92,25 +97,22 @@ class AgentEngine:
                     # Emit tool completion status
                     if status_callback:
                         status_callback(f"Tool '{tool_name}' returned status: '{status}'")
-                    
+                        
                     tool_call_history.append({
-                    'name': tool_name,
-                    'args_json': serialized_args,
-                    'status': status,
-                    'paths': _extract_paths(tool_name, tool_args) or set()
+                        'name': tool_name,
+                        'args_json': serialized_args,
+                        'status': status,
+                        'paths': _extract_paths(tool_name, tool_args) or set()
                     })
-
-                    db_messages.append({"role": "assistant", "tool_calls": [tool_call]})
                     
                     if status == "success":
                         formatted_output = f"SYSTEM: Action SUCCESS. DO NOT repeat this action. Review output and move to next step.\n\nOUTPUT:\n{tool_output}"
                     else:
                         formatted_output = f"SYSTEM: Action FAILED. Analyze the error below and change your approach.\n\nERROR:\n{tool_output}"
-
+                        
                     db_messages.append({"role": "tool", "tool_name": tool_name, "content": formatted_output})
-                    # --- NEW CODE END ---
                     
-                    continue
+                continue
             
             else:
                 # 4. Final text response received

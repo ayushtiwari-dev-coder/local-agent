@@ -22,23 +22,26 @@ def check_for_infinite_loop(
     tool_call_history: list[dict], tool_name: str, tool_args: dict
 ) -> tuple[bool, str | None, str]:
     serialized_args = json.dumps(tool_args, sort_keys=True)
-    
+
     # 1. Exact-arg repeat check (catches identical calls - REAL infinite loops)
+    # CHANGED: Now only counts BACK-TO-BACK consecutive identical calls.
     total_identical_calls = 0
     failed_identical_calls = 0
-    
-    for call in tool_call_history:
+
+    for call in reversed(tool_call_history):
         if call['name'] == tool_name and call['args_json'] == serialized_args:
             total_identical_calls += 1
             if call.get('status') == 'error':
                 failed_identical_calls += 1
+        else:
+            break
 
-    # Halt if it keeps trying the exact same failed action blindly
+    # Halt if it keeps trying the exact same failed action blindly (back-to-back)
     if failed_identical_calls >= 3:
-        return True, f"Error: Halting. '{tool_name}' already failed once with these exact params: {tool_args}.", serialized_args
-        
-    # Halt if it keeps repeating an action that already succeeded (wasting tokens)
+        return True, f"Error: Halting. '{tool_name}' already failed consecutively with these exact params: {tool_args}.", serialized_args
+
+    # Halt if it keeps repeating an action that already succeeded (back-to-back) (wasting tokens)
     if total_identical_calls >= 2:
-        return True, f"Error: Halting. '{tool_name}' already succeeded once with these exact params: {tool_args}.", serialized_args
-    
+        return True, f"Error: Halting. '{tool_name}' already succeeded consecutively with these exact params: {tool_args}.", serialized_args
+
     return False, None, serialized_args
