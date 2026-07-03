@@ -43,6 +43,7 @@ def read_files(paths: list[str]) -> dict:
             else:
                 with open(safe_path, 'r', encoding='utf-8', errors='replace') as f:
                     results[path] = f.read()
+
         except Exception as e:
             results[path] = f"Error: Failed to read file: {e}"
             

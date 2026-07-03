@@ -118,6 +118,8 @@ def compile_llm_context(conversation_id: int, max_tokens: int = MAX_CONTEXT_TOKE
                 trim_index += 1 # Skip the user prompt, delete the next message instead
 
             context_messages.pop(trim_index)
+            while len(context_messages)>trim_index and context_messages[trim_index]["role"]=="tool":
+                context_messages.pop(trim_index)
             
             # Recalculate
             current_estimated_tokens = _estimate_tokens(context_messages)
