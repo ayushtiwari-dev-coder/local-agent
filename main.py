@@ -13,9 +13,6 @@ from utils.path_helper import load_env_file
 load_env_file()
 
 from database.table_generator import create_tables
-from managers.recovery_manager import ExecutionRecoveryManager
-from tools.orchestra_tools import register_orchestra_status_callback
-from cli.callbacks import cli_status_callback
 from cli.menu_flows import run_main_app_loop
 
 def run_assistant_cli() -> None:
@@ -23,15 +20,10 @@ def run_assistant_cli() -> None:
     print("Initializing local assistant database...")
     try:
         create_tables()
-        # Clean up orphaned background tasks from abnormal shutdowns
-        ExecutionRecoveryManager.recover_orphaned_tasks()
-        
-        # Register the status callback inside the orchestrator
-        register_orchestra_status_callback(cli_status_callback)
     except Exception as e:
         print(f"Fatal: Database setup failed: {e}")
         sys.exit(1)
-        
+    
     # Launch main application menu flow
     run_main_app_loop()
 

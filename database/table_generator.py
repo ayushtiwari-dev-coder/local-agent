@@ -53,19 +53,8 @@ def create_tables() -> None:
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
         );
         """,
-
-        # 5. sub tasks
-        """ CREATE TABLE IF NOT EXISTS sub_tasks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        task_id INTEGER NOT NULL,
-        description TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'in_progress', 'completed', 'failed'
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        completed_at TIMESTAMP,
-        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
-        );""",
         
-        # 6. Messages Table
+        # 5. Messages Table
         """
         CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,7 +66,7 @@ def create_tables() -> None:
         );
         """,
         
-        # 7. Memories Table
+        # 6. Memories Table
         """
         CREATE TABLE IF NOT EXISTS memories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,7 +76,7 @@ def create_tables() -> None:
         );
         """,
         
-        # 8 Model Usage Table
+        # 7 Model Usage Table
         """
         CREATE TABLE IF NOT EXISTS model_usage (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,7 +90,7 @@ def create_tables() -> None:
         );
         """,
         
-        # 9. Tool Execution Logs Table
+        # 8. Tool Execution Logs Table
         """
         CREATE TABLE IF NOT EXISTS tool_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,7 +105,7 @@ def create_tables() -> None:
         );
         """,
 
-        # 10. Summaries Table
+        # 9. Summaries Table
         """
         CREATE TABLE IF NOT EXISTS summaries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
