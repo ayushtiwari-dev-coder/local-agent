@@ -15,8 +15,6 @@ history     - Reprint the full transcript of this conversation
 tools       - Show just the tool calls made in this conversation
 /models     - Switch active models/providers on the fly
 /thinking   - Adjust reasoning/thinking budget
-/status     - See what the background Planner/Executor are working on right now
-/route      - Configure dynamic Planner/Executor agent routing on the fly
 /search     - Search your long-term memories database
 /delete     - Delete current active conversation thread immediately
 help        - Show this list again
