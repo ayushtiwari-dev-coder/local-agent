@@ -37,3 +37,13 @@ class BaseLLMProvider(ABC):
             LLMResponse: Our standardized schema containing text, tool_calls, and token counts.
         """
         pass
+    @abstractmethod
+    def embed_text(self, texts: List[str]) -> List[List[float]]:
+        """
+        Generates coordinate vector lists for a list of strings.
+        Args:
+            texts: A list of strings to embed.
+        Returns:
+            A list of float arrays representing the embeddings.
+        """
+        pass

@@ -52,6 +52,17 @@ class GeminiProvider(BaseLLMProvider):
                 if parts:
                     gemini_messages.append({"role": gemini_role, "parts": parts})
         return gemini_messages
+    
+    def embed_text(self, texts: List[str]) -> List[List[float]]:
+        """Generates embeddings using Gemini's native client."""
+        response = self.client.models.embed_content(
+            model="gemini-embedding-001", 
+            contents=texts
+        )
+        # Handle both single and batch responses safely
+        if not isinstance(response.embeddings, list):
+            return [response.embeddings.values]
+        return [emb.values for emb in response.embeddings]
 
     def generate_content(self, messages: List[Dict[str, Any]], tools: List[Callable], system_instruction: str = "", **kwargs) -> LLMResponse:
         # 1. Extract app-wide logic using your new file!

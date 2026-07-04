@@ -28,7 +28,7 @@ def run_database_test() -> None:
     # 3. Query SQLite system table to verify the expected tables exist
     expected_tables = {
         "users", "projects", "tasks", "conversations", 
-        "messages", "memories", "model_usage", "tool_logs","summaries"
+        "messages", "memories", "model_usage", "tool_logs","summaries","memory_categories"
     }
     
     conn = get_connection()
@@ -41,7 +41,7 @@ def run_database_test() -> None:
         if missing_tables:
             raise AssertionError(f"Missing expected tables in database: {missing_tables}")
             
-        print("Success: All 9 foundational tables verified in the schema.")
+        print("Success: All 10 foundational tables verified in the schema.")
         
     finally:
         conn.close()

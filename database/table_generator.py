@@ -65,14 +65,25 @@ def create_tables() -> None:
             FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
         );
         """,
+
+        # 6a. Memory Categories (Blocks) Table
+        """
+        CREATE TABLE IF NOT EXISTS memory_categories (
+            category TEXT PRIMARY KEY,
+            embedding TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
         
-        # 6. Memories Table
+        # 6b. Memories Table
         """
         CREATE TABLE IF NOT EXISTS memories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             content TEXT NOT NULL,
-            category TEXT NOT NULL DEFAULT 'general',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            category TEXT NOT NULL,
+            embedding TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (category) REFERENCES memory_categories(category) ON DELETE CASCADE
         );
         """,
         

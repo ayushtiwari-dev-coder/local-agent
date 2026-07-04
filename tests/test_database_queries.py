@@ -10,7 +10,12 @@ from database.table_generator import create_tables
 from queries.user_queries import create_user, get_user_by_id
 from queries.conversation_queries import create_conversation, get_conversation_by_id
 from queries.message_queries import create_message
-from queries.memory_queries import create_memory, search_memories
+from queries.memory_queries import (
+    create_category_with_embedding, 
+    create_memory_with_embedding, 
+    get_all_categories, 
+    get_memories_by_category
+)
 
 class TestDatabaseQueries(unittest.TestCase):
     def setUp(self):
@@ -62,28 +67,32 @@ class TestDatabaseQueries(unittest.TestCase):
         with self.assertRaises(ValueError):
             get_conversation_by_id(9999)
 
-    def test_memory_search_wildcard_matching(self):
-        """Verifies that search_memories matches keywords in both contents and categories."""
-        # 1. Write mock memories (lowercase inputs)
-        create_memory("The user prefers using Python 3.11", category="preferences")
-        create_memory("Project documentation initialized", category="system_logs")
-
-        # 2. Search keyword in content
-        matches_content = search_memories("Python")
-        self.assertEqual(len(matches_content), 1)
-        # Fix: Assert lowercase 'preferences' to match raw database values
-        self.assertEqual(matches_content[0]["category"], "preferences")
-        self.assertIn("Python 3.11", matches_content[0]["content"])
-
-        # 3. Search keyword in category (case insensitive search via LIKE query)
-        matches_category = search_memories("system")
-        self.assertEqual(len(matches_category), 1)
-        # Fix: Assert lowercase 'system_logs' to match raw database values
-        self.assertEqual(matches_category[0]["category"], "system_logs")
-
-        # 4. Search term with no matches
-        no_matches = search_memories("non-existent-key")
-        self.assertEqual(len(no_matches), 0)
+    def test_semantic_memory_queries(self):
+        """Verifies that memory categories and embedded memories are stored and retrieved correctly."""
+        
+        # 1. Write mock category and memory (using stringified JSON lists to mock vectors)
+        mock_cat_embedding = "[0.1, 0.2, 0.3]"
+        mock_mem_embedding = "[0.4, 0.5, 0.6]"
+        
+        create_category_with_embedding("Python Settings", mock_cat_embedding)
+        create_memory_with_embedding("User prefers Python 3.11", "Python Settings", mock_mem_embedding)
+        
+        # 2. Verify Category Retrieval
+        categories = get_all_categories()
+        self.assertEqual(len(categories), 1)
+        self.assertEqual(categories[0]["category"], "Python Settings")
+        self.assertEqual(categories[0]["embedding"], mock_cat_embedding)
+        
+        # 3. Verify Memory Retrieval by Category
+        memories = get_memories_by_category("Python Settings")
+        self.assertEqual(len(memories), 1)
+        self.assertEqual(memories[0]["content"], "User prefers Python 3.11")
+        self.assertEqual(memories[0]["category"], "Python Settings")
+        self.assertEqual(memories[0]["embedding"], mock_mem_embedding)
+        
+        # 4. Verify Empty Category Retrieval (No matches)
+        empty_memories = get_memories_by_category("Non-existent Category")
+        self.assertEqual(len(empty_memories), 0)
 
 if __name__ == "__main__":
     unittest.main()
