@@ -12,7 +12,7 @@ from managers.summary_manager import trigger_background_summary
 from llm.provider_factory import LLMFactory
 
 class AgentEngine:
-    def __init__(self, provider_name: str = "gemini", model_name: str = "gemini-3.1-flash-lite", api_key: str | None = None, autonomous: bool = False):
+    def __init__(self, provider_name: str = "gemini", model_name: str = "gemini-3.1-flash-lite", api_key: str | None = None, autonomous: bool = False,):
         # Dynamically map the correct environment variable key name
         env_var_map = {
             "gemini": "GEMINI_API_KEY",

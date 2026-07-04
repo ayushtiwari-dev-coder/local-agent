@@ -243,24 +243,14 @@ def enter_chat_session(conversation_id: int) -> None:
                 print("=========================================================\n")
                 continue
 
-            # Check if the user is triggering a multi-agent background workflow
-            if "use agent" in lowered or "use agents" in lowered:
-                from tools.orchestra_tools import trigger_multi_agent_workflow
-                print("\n⚙️ [System Status] Manual multi-agent trigger detected. Spawning background orchestra...")
                 reset_execution_counters()
-                response_text = trigger_multi_agent_workflow(conversation_id, user_input)
-                print(f"\n🤖 Assistant: {response_text}\n")
-                continue
-            
-            # Execute Standard Supervised ReAct loop turn
-            reset_execution_counters()
             response_text = engine.send_message(
                 conversation_id=conversation_id,
                 user_text=user_input,
                 approval_callback=cli_tool_approval_callback,
                 status_callback=cli_status_callback
             )
-            print(f"\n🤖 Assistant: {response_text}\n")
+            print(f"\n 馃 Assistant: {response_text}\n")
 
         except KeyboardInterrupt:
             print("\nSession interrupted. Returning to main menu.")

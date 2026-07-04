@@ -2,6 +2,7 @@
 import os
 import json
 import subprocess
+from tools.sandbox_executor import DockerSandboxExecutor    
 
 SANDBOX_ROOT = os.path.abspath(
     os.path.join(os.path.expanduser("~"), ".local_workflow_agent", "workspace")
@@ -88,39 +89,8 @@ def write_files(files: list[dict]) -> dict:
     return results
 
 
-
+_sandbox=DockerSandboxExecutor(SANDBOX_ROOT)
 def run_terminal_command(command: str) -> str:
-    """Executes a shell command inside the sandboxed workspace."""
-    try:
-        # Run command inside the safe sandbox root directory
-        result = subprocess.run(
-            command,
-            shell=True,
-            cwd=SANDBOX_ROOT,
-            capture_output=True,
-            text=True,
-            timeout=15  
-        )
-        
-        # Combine stdout and stderr so test failures and tracebacks are never discarded
-        output_parts = []
-        if result.stdout:
-            output_parts.append(result.stdout)
-        if result.stderr:
-            output_parts.append(result.stderr)
-            
-        combined_output = "\n".join(output_parts).strip()
-
-        if len(combined_output) > 1500:
-            combined_output = (
-                combined_output[:200] + 
-                "\n\n...[OUTPUT TRUNCATED TO SAVE TOKENS]...\n\n" + 
-                combined_output[-1200:]
-            )
-
-        return combined_output or "SUCESS: command executed perfectly without an error and ouput"
-        
-    except subprocess.TimeoutExpired:
-        return "Error: Command execution timed out (exceeded 15 seconds)."
-    except Exception as e:
-        return f"Error executing command: {e}"
+    """Executes a shell command safely using the configured sandbox architecture."""
+    # Delegate execution entirely to your secure Sandbox Executor
+    return _sandbox.run_command(command)

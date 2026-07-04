@@ -1,4 +1,3 @@
-# FILE: tests/test_sandbox_executor.py
 import os
 import unittest
 from unittest.mock import patch, MagicMock
@@ -16,7 +15,6 @@ class TestSandboxExecutor(unittest.TestCase):
         """Verify that a running Docker Desktop client is detected successfully."""
         mock_client = MagicMock()
         mock_from_env.return_value = mock_client
-        
         is_available = self.executor._check_docker()
         self.assertTrue(is_available)
         mock_client.ping.assert_called_once()
@@ -27,7 +25,6 @@ class TestSandboxExecutor(unittest.TestCase):
         mock_client = MagicMock()
         mock_client.ping.side_effect = Exception("Daemon offline")
         mock_from_env.return_value = mock_client
-        
         is_available = self.executor._check_docker()
         self.assertFalse(is_available)
 
@@ -38,13 +35,11 @@ class TestSandboxExecutor(unittest.TestCase):
         mock_client.containers.run.return_value = b"sample command output"
         mock_from_env.return_value = mock_client
         self.executor._docker_available = True
-        
         result = self.executor.run_command("echo test")
         self.assertEqual(result, "sample command output")
-        
         mock_client.containers.run.assert_called_once_with(
             image="python:3.11-slim",
-            command="sh -c 'echo test'",  
+            command="sh -c 'echo test'",
             volumes={self.sandbox_root: {"bind": "/workspace", "mode": "rw"}},
             working_dir="/workspace",
             network_disabled=True,
@@ -70,21 +65,18 @@ class TestSandboxExecutor(unittest.TestCase):
         mock_client.containers.run.side_effect = container_error
         mock_from_env.return_value = mock_client
         self.executor._docker_available = True
-        
         result = self.executor.run_command("invalid_cmd")
         self.assertIn("Error: Process failed with exit code 127", result)
         self.assertIn("Command not found", result)
 
-    @patch("subprocess.run")  # Patched globally to handle local function imports
+    @patch("subprocess.run")
     def test_run_command_local_subprocess_fallback(self, mock_subprocess_run):
         """Verify fallback to safe local subprocess execution if Docker is offline."""
         self.executor._docker_available = False
-        
         mock_response = MagicMock()
         mock_response.stdout = "local subprocess output"
         mock_response.stderr = ""
         mock_subprocess_run.return_value = mock_response
-        
         result = self.executor.run_command("echo local")
         self.assertEqual(result, "local subprocess output")
         mock_subprocess_run.assert_called_once_with(
@@ -95,6 +87,7 @@ class TestSandboxExecutor(unittest.TestCase):
             text=True,
             timeout=15
         )
+
     @patch("subprocess.run")
     @patch("builtins.input", return_value="y")
     def test_run_local_fallback_destructive_command_allowed(self, mock_input, mock_subprocess_run):
@@ -102,6 +95,12 @@ class TestSandboxExecutor(unittest.TestCase):
         Scenario 1: A dangerous command is parsed, user responds with 'y' (allow).
         The execution should proceed through subprocess.run.
         """
+        # Assign a fallback callback that calls builtins.input so the test executes as intended
+        def test_callback(cmd, reason):
+            choice = input(f"Unsafe command: {cmd}. Reason: {reason}. Allow? (y/n): ")
+            return choice.strip().lower() == "y"
+        self.executor.fallback_approval_callback = test_callback
+
         # Mock subprocess execution result
         mock_response = MagicMock()
         mock_response.stdout = "Deletion executed successfully."
@@ -109,15 +108,17 @@ class TestSandboxExecutor(unittest.TestCase):
         mock_subprocess_run.return_value = mock_response
 
         destructive_cmd = "rm -rf /tmp/test_workspace_sandbox_dummy"
-        
-        # Trigger local fallback directly
         result = self.executor._run_local_fallback(destructive_cmd, timeout_seconds=15)
-        
-        # Verify user was prompted
+
+        # Verify user was prompted and subprocess was called
         mock_input.assert_called_once()
-        # Verify subprocess.run WAS executed
         mock_subprocess_run.assert_called_once_with(
-            destructive_cmd, shell=True, cwd=self.sandbox_root, capture_output=True, text=True, timeout=15
+            destructive_cmd,
+            shell=True,
+            cwd=self.sandbox_root,
+            capture_output=True,
+            text=True,
+            timeout=15
         )
         self.assertEqual(result, "Deletion executed successfully.")
 
@@ -128,14 +129,17 @@ class TestSandboxExecutor(unittest.TestCase):
         Scenario 2: A dangerous command is parsed, user responds with 'n' (block).
         The execution should immediately exit, returning a blocked warning string.
         """
+        # Assign a fallback callback that calls builtins.input so the test executes as intended
+        def test_callback(cmd, reason):
+            choice = input(f"Unsafe command: {cmd}. Reason: {reason}. Allow? (y/n): ")
+            return choice.strip().lower() == "y"
+        self.executor.fallback_approval_callback = test_callback
+
         destructive_cmd = "rm -rf /etc/hosts"
-        
-        # Trigger local fallback directly
         result = self.executor._run_local_fallback(destructive_cmd, timeout_seconds=15)
-        
-        # Verify user was prompted
+
+        # Verify user was prompted and subprocess was never run
         mock_input.assert_called_once()
-        # Verify subprocess.run was NEVER executed
         mock_subprocess_run.assert_not_called()
         self.assertIn("blocked by user", result)
         self.assertIn("safety check", result)
@@ -143,22 +147,17 @@ class TestSandboxExecutor(unittest.TestCase):
     @patch("subprocess.run")
     @patch("builtins.input")
     def test_run_local_fallback_safe_command_no_prompt(self, mock_input, mock_subprocess_run):
-        """
-        Scenario 3: A safe command is parsed.
-        The execution should run directly without interrupting or prompting the user.
-        """
+        """Scenario 3: A safe command is parsed. The execution should run directly without prompting."""
         mock_response = MagicMock()
         mock_response.stdout = "Hello World"
         mock_response.stderr = ""
         mock_subprocess_run.return_value = mock_response
 
         safe_cmd = "echo 'hello world'"
-        
         result = self.executor._run_local_fallback(safe_cmd, timeout_seconds=15)
-        
-        # Verify user was NEVER prompted
+
+        # Verify user was never prompted
         mock_input.assert_not_called()
-        # Verify the command was executed
         mock_subprocess_run.assert_called_once()
         self.assertEqual(result, "Hello World")
 

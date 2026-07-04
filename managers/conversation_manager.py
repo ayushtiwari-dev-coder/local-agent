@@ -109,19 +109,24 @@ def compile_llm_context(conversation_id: int, max_tokens: int = MAX_CONTEXT_TOKE
         current_estimated_tokens = _estimate_tokens(context_messages)
         
         # If we are over budget, trim messages one-by-one
+        # If we are over budget, trim messages one-by-one
         while current_estimated_tokens > max_tokens and len(context_messages) > 1:
-
             trim_index = 1 if has_summary else 0
-
-            # Protect the first user message from deletion!
-            if len(context_messages) > trim_index + 1 and context_messages[trim_index]["role"] == "user":
-                trim_index += 1 # Skip the user prompt, delete the next message instead
-
-            context_messages.pop(trim_index)
-            while len(context_messages)>trim_index and context_messages[trim_index]["role"]=="tool":
-                context_messages.pop(trim_index)
             
-            # Recalculate
+            # Protect the first user message
+            if len(context_messages) > trim_index + 1 and context_messages[trim_index].get("role") == "user":
+                trim_index += 1
+                
+            if trim_index >= len(context_messages):
+                break
+                
+            removed_msg = context_messages.pop(trim_index)
+            
+            # Clean up corresponding tool outputs if we removed an assistant tool call
+            if removed_msg.get("role") == "assistant" and "tool_calls" in removed_msg:
+                while len(context_messages) > trim_index and context_messages[trim_index].get("role") == "tool":
+                    context_messages.pop(trim_index)
+                    
             current_estimated_tokens = _estimate_tokens(context_messages)
             
         return context_messages

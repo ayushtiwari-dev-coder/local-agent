@@ -70,28 +70,33 @@ _db_worker.start()
 
 
 def execute_read(query: str, params: tuple = (), fetch_one: bool = False) -> any:
-    """
-    Public API replacement: Submits read tasks safely to the serialized database worker thread.
-    """
+    if not _db_worker.is_alive():
+        raise RuntimeError("Database worker thread is not running.")
+        
     reply_queue = queue.Queue(maxsize=1)
     _db_worker.task_queue.put((query, params, fetch_one, False, reply_queue))
     
-    # Block calling thread until worker finishes processing
-    result, error = reply_queue.get()
+    try:
+        result, error = reply_queue.get(timeout=5.0)
+    except queue.Empty:
+        raise RuntimeError("Database read timed out.")
+        
     if error:
-        raise RuntimeError(f"Database read error: {error}") from error
+        raise error
     return result
 
-
 def execute_write(query: str, params: tuple = ()) -> int:
-    """
-    Public API replacement: Submits write tasks safely to the serialized database worker thread.
-    """
+    if not _db_worker.is_alive():
+        raise RuntimeError("Database worker thread is not running.")
+        
     reply_queue = queue.Queue(maxsize=1)
     _db_worker.task_queue.put((query, params, False, True, reply_queue))
     
-    # Block calling thread until worker finishes processing
-    result, error = reply_queue.get()
+    try:
+        result, error = reply_queue.get(timeout=5.0)
+    except queue.Empty:
+        raise RuntimeError("Database write timed out.")
+        
     if error:
         raise error
     return result

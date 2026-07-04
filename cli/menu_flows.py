@@ -106,11 +106,11 @@ def delete_conversation_flow() -> None:
 
 def agent_routing_flow() -> None:
     """Configures specific models for Planner, Executor, and Manager roles."""
-    roles = ["manager", "planner", "executor"]
+    roles = ["manager", "planner","critic","executor"]
     providers = list(SUPPORTED_MODELS.keys())
     console.print(Panel(
         "[bold cyan]⚙️ Configure Agent Role Routing[/bold cyan]\n"
-        "Set custom models for Planner, Executor, or Base Coordinator roles.", border_style="cyan"
+        "Set custom models for Planner,Critic,Executor, or Base Coordinator roles.", border_style="cyan"
     ))
     print(SEPARATOR)
     for idx, role in enumerate(roles, start=1):
@@ -118,7 +118,7 @@ def agent_routing_flow() -> None:
         console.print(f"   [{idx}] [bold magenta]{role.upper()}[/bold magenta] -> Provider: [green]{route['provider'].upper()}[/green] | Model: [green]{route['model']}[/green]")
     print(SEPARATOR)
     role_choice = input("   Select an Agent Role to modify (1-3) or press Enter to cancel: ").strip()
-    if role_choice not in ["1", "2", "3"]:
+    if role_choice not in ["1", "2", "3","4"]:
         return
     selected_role = roles[int(role_choice) - 1]
     

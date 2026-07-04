@@ -7,7 +7,7 @@ from ..base_provider import BaseLLMProvider
 from ..schemas import LLMResponse, ToolCall
 from llm.context_formatter import format_context
 from llm.generate_with_retry import generate_with_retry,is_quota_error
-
+import re
 def _function_to_schema(func: Callable) -> Dict[str, Any]:
     """Generates an OpenAI/Groq compatible tool schema from a Python callable."""
     name = func.__name__
@@ -124,6 +124,31 @@ class GroqProvider(BaseLLMProvider):
                 
         return openai_messages
 
+    def _make_groq_request(self, groq_messages, groq_tools):
+        """Dedicated method to handle the actual Groq API call and salvage logic."""
+        params = {
+            "model": self.model_name,
+            "messages": groq_messages
+        }
+        if groq_tools:
+            params["tools"] = groq_tools
+            
+        try:
+            return self.client.chat.completions.create(**params)
+        except Exception as e:
+            # Intercept Groq's 400 tool_use_failed error (our strong parsing fix)
+            if hasattr(e, 'response') and getattr(e.response, 'status_code', 0) == 400:
+                try:
+                    err_data = e.response.json().get('error', {})
+                    if err_data.get('code') == 'tool_use_failed':
+                        failed_text = err_data.get('failed_generation', '')
+                        salvaged_response = salvage_groq_failed_generation(failed_text)
+                        if salvaged_response:
+                            return salvaged_response
+                except Exception:
+                    pass
+            raise e
+
     def generate_content(self, messages: List[Dict[str, Any]], tools: List[Callable], system_instruction: str = "", **kwargs) -> LLMResponse:
         """Executes content generation for Groq with local tools and retry capabilities."""
         db_sys_inst, standard_msgs = format_context(messages)
@@ -135,21 +160,14 @@ class GroqProvider(BaseLLMProvider):
             
         groq_tools = [_function_to_schema(t) for t in tools] if tools else None
         
-        def make_groq_request():
-            params = {
-                "model": self.model_name,
-                "messages": groq_messages
-            }
-            if groq_tools:
-                params["tools"] = groq_tools
-            return self.client.chat.completions.create(**params)
-            
+        # Use a lambda to pass the method with arguments, satisfying the zero-argument requirement
         response = generate_with_retry(
-            request_fn=make_groq_request,
+            request_fn=lambda: self._make_groq_request(groq_messages, groq_tools),
             is_quota_error_fn=is_quota_error,
             status_callback=kwargs.get("status_callback"),
             max_attempts=3
         )
+        
         return self._parse_response(response)
 
     def _parse_response(self, response: Any) -> LLMResponse:
@@ -181,3 +199,66 @@ class GroqProvider(BaseLLMProvider):
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens
         )
+    
+
+
+def salvage_groq_failed_generation(failed_text: str):
+    """Intercepts Groq's 400 error, cleans Llama's broken JSON, and mocks a successful response."""
+    # 1. Extract the tool name and the broken arguments
+    match = re.search(r'<function=(\w+)>(.*?)</function>', failed_text, re.DOTALL)
+    if not match:
+        return None
+        
+    tool_name = match.group(1)
+    raw_args = match.group(2).strip()
+    
+    # STRONG PARSING: Fix common Llama JSON mistakes
+    # Escape raw newlines and tabs that Llama forgot to escape
+    raw_args = re.sub(r'(?<!\\)\n', r'\\n', raw_args)
+    raw_args = re.sub(r'(?<!\\)\t', r'\\t', raw_args)
+    
+    try:
+        args_dict = json.loads(raw_args)
+    except json.JSONDecodeError:
+        return None # If it's completely destroyed, let the retry loop handle it
+        
+    # STRONG PARSING: Fix Llama hallucinating a list instead of a dictionary
+    if isinstance(args_dict, list):
+        if tool_name == "write_files":
+            args_dict = {"files": args_dict}
+        elif tool_name == "read_files":
+            args_dict = {"paths": args_dict}
+        else:
+            args_dict = {"arguments": args_dict}
+            
+    # Create a mock Groq API response object to trick the rest of the system
+    class MockMessage:
+        def __init__(self):
+            thought_match = re.search(r'<thought>(.*?)</thought>', failed_text, re.DOTALL)
+            self.content = thought_match.group(1).strip() if thought_match else ""
+            
+            class MockFunction:
+                def __init__(self):
+                    self.name = tool_name
+                    self.arguments = json.dumps(args_dict)
+                    
+            class MockToolCall:
+                def __init__(self):
+                    self.id = f"call_{tool_name}_salvaged"
+                    self.function = MockFunction()
+                    
+            self.tool_calls = [MockToolCall()]
+            
+    class MockChoice:
+        def __init__(self):
+            self.message = MockMessage()
+            
+    class MockResponse:
+        def __init__(self):
+            self.choices = [MockChoice()]
+            class MockUsage:
+                prompt_tokens = 0
+                completion_tokens = 0
+            self.usage = MockUsage()
+            
+    return MockResponse()

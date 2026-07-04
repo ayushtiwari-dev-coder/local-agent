@@ -7,9 +7,10 @@ from tools.security_guard import check_command_safety
 logger = logging.getLogger("tools.sandbox_executor")
 
 class DockerSandboxExecutor:
-    def __init__(self, sandbox_root: str):
+    def __init__(self, sandbox_root: str, fallback_approval_callback=None):
         self.sandbox_root = os.path.abspath(sandbox_root)
         self._docker_available = None
+        self.fallback_approval_callback = fallback_approval_callback
 
     def _check_docker(self) -> bool:
         """Verifies if the Docker engine is running locally."""
@@ -57,20 +58,18 @@ class DockerSandboxExecutor:
     def _run_local_fallback(self, command: str, timeout_seconds: int) -> str:
         """Subprocess execution boundary fallback if Docker is offline."""
         import subprocess
-
+        
         is_safe, warning_reason = check_command_safety(command)
         if not is_safe:
-            print("\n" + "=" * 60)
-            print("⚠️  [SECURITY WARNING] Potential Destructive Command Detected!")
-            print(f"Command: {command}")
-            print(f"Flagged as: {warning_reason}")
-            print("=" * 60)
-            
 
-            confirm = input("Do you want to allow this command to run? (y/n): ").strip().lower()
-            if confirm != 'y':
+            if not self.fallback_approval_callback:
+                return f"Error: Execution blocked. Destructive command flagged: {warning_reason}."
+            
+            # Delegate validation directly to the presentation callback
+            approved = self.fallback_approval_callback(command, warning_reason)
+            if not approved:
                 return f"Error: Execution blocked by user. Reason: Failed safety check ({warning_reason})."
-        
+                
         try:
             result = subprocess.run(
                 command, shell=True, cwd=self.sandbox_root, capture_output=True, text=True, timeout=timeout_seconds
@@ -78,6 +77,6 @@ class DockerSandboxExecutor:
             output = "\n".join(filter(None, [result.stdout, result.stderr])).strip()
             return output or "[Command executed with no output]"
         except subprocess.TimeoutExpired:
-            return f"Error: Execution timed out (exceeded {timeout_seconds} seconds)."
+            return f"Error: Command execution timed out (exceeded {timeout_seconds} seconds)."
         except Exception as e:
             return f"Error executing native command: {e}"

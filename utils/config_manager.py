@@ -5,6 +5,8 @@ from database.connection import APP_DIR
 
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 
+# FILE: utils/config_manager.py
+
 DEFAULT_CONFIG = {
     "providers": {
         "gemini": {
@@ -22,6 +24,7 @@ DEFAULT_CONFIG = {
     "orchestra": {
         "manager": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
         "planner": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
+        "critic": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
         "executor": {"provider": "gemini", "model": "gemini-3.1-flash-lite"}
     }
 }
