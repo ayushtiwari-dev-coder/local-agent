@@ -114,6 +114,7 @@ def enter_chat_session(conversation_id: int) -> None:
         return
     
     print(f"\n=== You're in conversation {conversation_id}. Type 'help' for commands. ===\n")
+    render_conversation_history(conversation_id)
     
     while True:
         try:
