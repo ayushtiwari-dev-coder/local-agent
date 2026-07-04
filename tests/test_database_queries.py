@@ -10,7 +10,6 @@ from database.table_generator import create_tables
 from queries.user_queries import create_user, get_user_by_id
 from queries.conversation_queries import create_conversation, get_conversation_by_id
 from queries.message_queries import create_message
-from queries.task_queries import get_task_by_id
 from queries.memory_queries import create_memory, search_memories
 
 class TestDatabaseQueries(unittest.TestCase):
@@ -62,8 +61,6 @@ class TestDatabaseQueries(unittest.TestCase):
         """Ensures get_*_by_id functions raise clean ValueErrors when IDs don't exist."""
         with self.assertRaises(ValueError):
             get_conversation_by_id(9999)
-        with self.assertRaises(ValueError):
-            get_task_by_id(9999)
 
     def test_memory_search_wildcard_matching(self):
         """Verifies that search_memories matches keywords in both contents and categories."""

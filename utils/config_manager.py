@@ -20,13 +20,6 @@ DEFAULT_CONFIG = {
     },
     "default_provider": "gemini",
     "thinking_level": "high",
-    
-    "orchestra": {
-        "manager": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
-        "planner": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
-        "critic": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
-        "executor": {"provider": "gemini", "model": "gemini-3.1-flash-lite"}
-    }
 }
 
 
@@ -131,26 +124,3 @@ def is_provider_configured(provider_name: str) -> bool:
 def has_any_provider_configured() -> bool:
     """Returns True if at least one provider has configured keys."""
     return is_provider_configured("gemini") or is_provider_configured("groq")
-
-def get_orchestra_route(role_name: str) -> dict:
-    """
-    Retrieves the configured provider and model routing for a specific agent role.
-    Falls back to the default Gemini configuration if the route is missing.
-    """
-    config = load_config()
-    orchestra = config.get("orchestra", DEFAULT_CONFIG["orchestra"])
-    return orchestra.get(
-        role_name, 
-        {"provider": "gemini", "model": "gemini-3.1-flash-lite"}
-    )
-# Append to the bottom of utils/config_manager.py
-def set_orchestra_route(role_name: str, provider_name: str, model_name: str) -> None:
-    """Saves custom routing properties (Provider + Model) for specialized Agent roles."""
-    config = load_config()
-    if "orchestra" not in config:
-        config["orchestra"] = {}
-    config["orchestra"][role_name] = {
-        "provider": provider_name.strip().lower(),
-        "model": model_name.strip()
-    }
-    save_config(config)

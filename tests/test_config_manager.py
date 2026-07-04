@@ -35,7 +35,6 @@ class TestConfigManager(unittest.TestCase):
         config = cm.load_config()
         self.assertEqual(config["default_provider"], "gemini")
         self.assertEqual(config["thinking_level"], "high")
-        self.assertIn("orchestra", config)
 
     def test_set_and_get_provider_api_key_interaction(self):
         # Store key inside the mock json config
@@ -53,16 +52,6 @@ class TestConfigManager(unittest.TestCase):
         # Retrieval should fall back to mapped system environment variables
         key = cm.get_provider_api_key("groq")
         self.assertEqual(key, "fallback-groq-key")
-
-    def test_get_and_set_orchestra_routing(self):
-        # Update routing properties for executor role
-        cm.set_orchestra_route("executor", "groq", "llama-3.1-8b-instant")
-        
-        # Retrieve and verify updated route
-        route = cm.get_orchestra_route("executor")
-        self.assertEqual(route["provider"], "groq")
-        self.assertEqual(route["model"], "llama-3.1-8b-instant")
-
 
 if __name__ == "__main__":
     unittest.main()
