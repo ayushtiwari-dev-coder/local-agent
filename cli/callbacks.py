@@ -17,7 +17,16 @@ def reset_execution_counters() -> None:
 
 def cli_tool_approval_callback(tool_name: str, arguments: dict) -> bool:
     """Supervised Permission Check: Halts execution to ask the user for authorization."""
-    print(f"\n [AI Requests Tool Run] -> {tool_name}")
+
+    unsafe_tools = {
+        "run_terminal_command"
+    }
+
+    if tool_name not in unsafe_tools:
+        return True
+        
+    # 3. Halt and prompt the user ONLY for unsafe tools
+    print(f"\n [⚠️ CRUCIAL ACTION REQUESTED] -> {tool_name}")
     print(f" Parameters: {arguments}")
     choice = input(" Allow this action? (y/n): ").strip().lower()
     return choice == "y"

@@ -124,14 +124,18 @@ class GroqProvider(BaseLLMProvider):
                 
         return openai_messages
     
-    
+
     def embed_text(self, texts: List[str]) -> List[List[float]]:
         """Generates embeddings using Groq's fast embedding endpoint."""
-        response = self.client.embeddings.create(
-            model="nomic-embed-text-v1_5",
-            input=texts
-        )
-        return [emb.embedding for emb in response.data]
+        try:
+            response = self.client.embeddings.create(
+                model="nomic-embed-text-v1_5",
+                input=texts
+            )
+            return [emb.embedding for emb in response.data]
+        except Exception as e:
+            # Raise a clean error to be caught by the tool executor
+            raise RuntimeError(f"Groq Embedding API failed: {str(e)}")
 
     def _make_groq_request(self, groq_messages, groq_tools):
         """Dedicated method to handle the actual Groq API call and salvage logic."""

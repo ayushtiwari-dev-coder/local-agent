@@ -55,14 +55,17 @@ class GeminiProvider(BaseLLMProvider):
     
     def embed_text(self, texts: List[str]) -> List[List[float]]:
         """Generates embeddings using Gemini's native client."""
-        response = self.client.models.embed_content(
-            model="gemini-embedding-001", 
-            contents=texts
-        )
-        # Handle both single and batch responses safely
-        if not isinstance(response.embeddings, list):
-            return [response.embeddings.values]
-        return [emb.values for emb in response.embeddings]
+        try:
+            response = self.client.models.embed_content(
+                model="gemini-embedding-001", 
+                contents=texts
+            )
+            if not isinstance(response.embeddings, list):
+                return [response.embeddings.values]
+            return [emb.values for emb in response.embeddings]
+        except Exception as e:
+            # Raise a clean error to be caught by the tool executor
+            raise RuntimeError(f"Gemini Embedding API failed: {str(e)}")
 
     def generate_content(self, messages: List[Dict[str, Any]], tools: List[Callable], system_instruction: str = "", **kwargs) -> LLMResponse:
         # 1. Extract app-wide logic using your new file!
