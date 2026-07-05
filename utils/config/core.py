@@ -22,8 +22,8 @@ DEFAULT_CONFIG = {
             "groq": "llama-3.3-70b-versatile"
         },
         "embedding_models": {
-            "gemini": "text-embedding-001",  # Latest Gemini embedding model (or "models/embedding-001")
-            "groq": "nomic-embed-text-v1_5"  # Standard Groq embedding model
+            "gemini": "gemini-embedding-001",  
+            "groq": "nomic-embed-text-v1_5"  
         },
         "temperature": 0.2
     },

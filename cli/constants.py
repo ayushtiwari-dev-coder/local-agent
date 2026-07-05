@@ -37,3 +37,21 @@ SUPPORTED_MODELS = {
         {"model": "llama-3.1-8b-instant", "desc": "Llama 3.1 8B Instant (Extremely fast, ultra-low latency model)"}
     ]
 }
+SUPPORTED_EMBEDDING_MODELS = {
+    "gemini": [
+        {
+            "model": "gemini-embedding-001", 
+            "desc": "Standard stable text embedding model"
+        },
+        {
+            "model": "gemini-embedding-2", 
+            "desc": "Newest, high-performance multimodal-capable embedding model"
+        }
+    ],
+    "groq": [
+        {
+            "model": "nomic-embed-text-v1.5", 
+            "desc": "Groq's ultra-fast, high-accuracy open text embedding model"
+        }
+    ]
+}

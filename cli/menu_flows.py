@@ -1,6 +1,6 @@
 # cli/menu_flows.py
 import sys
-from cli.constants import SEPARATOR, SUPPORTED_MODELS
+from cli.constants import SEPARATOR, SUPPORTED_MODELS,SUPPORTED_EMBEDDING_MODELS
 from database.table_generator import create_tables
 from queries.conversation_queries import get_all_conversations, create_conversation
 from managers.user_manager import get_active_user, register_user
@@ -139,16 +139,18 @@ def configure_provider_flow(provider_name: str = None) -> bool:
     return True
 
 
+# cli/menu_flows.py
+
 def models_configuration_flow() -> None:
     """New dedicated menu for Base Instructions and Embedding Models."""
     while True:
         print(SEPARATOR)
         print(" Models & Prompts Configuration")
         print(SEPARATOR)
-        print("  [1] Edit Base System Instructions")
-        print(f"  [2] Set Gemini Embedding Model (Current: {config_manager.get_embedding_model('gemini')})")
-        print(f"  [3] Set Groq Embedding Model (Current: {config_manager.get_embedding_model('groq')})")
-        print("  [4] Back")
+        print(" [1] Edit Base System Instructions")
+        print(f" [2] Set Gemini Embedding Model (Current: {config_manager.get_embedding_model('gemini')})")
+        print(f" [3] Set Groq Embedding Model (Current: {config_manager.get_embedding_model('groq')})")
+        print(" [4] Back")
         
         choice = input(" Choose option (1-4): ").strip()
         
@@ -161,18 +163,27 @@ def models_configuration_flow() -> None:
             elif val:
                 config_manager.set_system_instruction(val)
                 print(" System instructions updated.")
-        
-        elif choice == "2":
-            val = input(" Enter Gemini embedding model (e.g., text-embedding-004): ").strip()
-            if val:
-                config_manager.set_embedding_model("gemini", val)
-                print(" Gemini embedding model updated.")
                 
-        elif choice == "3":
-            val = input(" Enter Groq embedding model (e.g., nomic-embed-text-v1_5): ").strip()
-            if val:
-                config_manager.set_embedding_model("groq", val)
-                print(" Groq embedding model updated.")
+        elif choice in ("2", "3"):
+            provider = "gemini" if choice == "2" else "groq"
+            models = SUPPORTED_EMBEDDING_MODELS.get(provider, [])
+            
+            print(SEPARATOR)
+            print(f" Select {provider.capitalize()} Embedding Model:")
+            print(SEPARATOR)
+            
+            for idx, m in enumerate(models, start=1):
+                print(f" [{idx}] {m['model']} - ({m['desc']})")
+            print(SEPARATOR)
+            
+            pick = input(f" Choose model (1-{len(models)}) [or Enter to cancel]: ").strip()
+            
+            if pick.isdigit() and 1 <= int(pick) <= len(models):
+                selected_model = models[int(pick) - 1]["model"]
+                config_manager.set_embedding_model(provider, selected_model)
+                print(f"\n[Success] {provider.capitalize()} embedding model updated to: {selected_model}")
+            else:
+                print("\nSelection cancelled or invalid.")
                 
         elif choice == "4":
             break
