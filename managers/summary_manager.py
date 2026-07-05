@@ -3,6 +3,7 @@ import threading
 from database.helper import execute_read
 from queries.summary_queries import create_or_update_summary, get_summary_by_conversation
 from llm.provider_factory import LLMFactory
+import utils.config_manager as config_manager
 
 def trigger_background_summary(api_key: str, model_name: str, conversation_id: int) -> None:
     """
@@ -33,8 +34,8 @@ def _run_summary_workflow(api_key: str, model_name: str, conversation_id: int) -
     except Exception:
         return # Safely ignore DB read errors in the background
 
-    # We only trigger a summary if we have accumulated more than 10 new un-summarized messages
-    if len(raw_messages) < 30:
+    trigger_threshold = config_manager.get_summary_trigger_count()
+    if len(raw_messages) < trigger_threshold:
         return
 
     # 3. Compile the text block to feed to the LLM

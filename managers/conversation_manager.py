@@ -5,6 +5,7 @@ from queries.conversation_queries import create_conversation
 from queries.message_queries import create_message
 from queries.model_usage_queries import log_model_usage
 from queries.tool_log_queries import log_tool_execution
+import utils.config_manager as config_manager   
 
 def start_new_conversation(user_id: int = None, title: str = "New Conversation") -> dict:
     """
@@ -24,8 +25,6 @@ def save_user_message(conversation_id: int, content: str) -> dict:
     return create_message(conversation_id, role="user", content=clean_content)
 
 
-# A safe local default limit (e.g., 100,000 tokens)
-MAX_CONTEXT_TOKENS = 100000
 
 def _estimate_tokens(messages: list[dict]) -> int:
     
@@ -49,12 +48,14 @@ def _estimate_tokens(messages: list[dict]) -> int:
     return total_tokens
 
 
-def compile_llm_context(conversation_id: int, max_tokens: int = MAX_CONTEXT_TOKENS) -> list[dict]:
+def compile_llm_context(conversation_id: int, max_tokens: int = None) -> list[dict]:
     """
     Compiles and self-trims the conversation history.
     If the context exceeds max_tokens, it preserves the system summary card at index 0
     but discards the oldest raw messages (index 1) until the payload fits within budget.
     """
+    if max_tokens is None:
+        max_tokens = config_manager.get_max_context_tokens()
     context_messages = []
     
     conn = get_connection()

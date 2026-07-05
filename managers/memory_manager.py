@@ -8,6 +8,7 @@ from queries.memory_queries import (
     create_category_with_embedding,
     get_all_categories
 )
+import utils.config_manager as config_manager
 
 def _get_active_provider():
     """Dynamically resolves the active LLM provider for embeddings."""
@@ -47,9 +48,11 @@ def save_semantic_memory(content: str, suggested_category: str) -> None:
         if score > best_score:
             best_score = score
             best_match_category = block["category"]
+        
+        similarity_threshold = config_manager.get_memory_similarity_threshold()
             
-    # If the closest category is highly similar (> 80%), group it there
-    if best_match_category and best_score >= 0.80:
+
+    if best_match_category and best_score >= similarity_threshold:
         target_category = best_match_category
     else:
         # Topic drift: Create a brand new block in the database

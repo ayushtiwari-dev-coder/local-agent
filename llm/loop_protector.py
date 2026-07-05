@@ -1,4 +1,5 @@
 import json
+import utils.config_manager as config_manager
 
 def _extract_paths(tool_name: str, tool_args: dict) -> set[str] | None:
     """For file tools, pull out the set of file paths being touched, regardless of content."""
@@ -35,13 +36,23 @@ def check_for_infinite_loop(
                 failed_identical_calls += 1
         else:
             break
+    limits=config_manager.get_loop_guard() or {}
+    max_failed = limits.get("max_failed_attempts")
+    if max_failed is None or max_failed <= 0:
+        max_failed = 3
+    max_success = limits.get("max_success_attempts")
+    if max_success is None or max_success <= 0:
+        max_success = 2
+
+
+
 
     # Halt if it keeps trying the exact same failed action blindly (back-to-back)
-    if failed_identical_calls >= 3:
+    if failed_identical_calls >= max_failed:
         return True, f"Error: Halting. '{tool_name}' already failed consecutively with these exact params: {tool_args}.", serialized_args
 
     # Halt if it keeps repeating an action that already succeeded (back-to-back) (wasting tokens)
-    if total_identical_calls >= 2:
+    if total_identical_calls >= max_success:
         return True, f"Error: Halting. '{tool_name}' already succeeded consecutively with these exact params: {tool_args}.", serialized_args
 
     return False, None, serialized_args

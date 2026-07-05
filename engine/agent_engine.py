@@ -2,6 +2,8 @@
 
 import os
 import json
+
+from fastapi import utils
 from tools.registry import get_all_tools
 from llm.loop_protector import check_for_infinite_loop, _extract_paths
 from engine.handle_permissions import determine_and_execute_tool
@@ -10,6 +12,7 @@ from managers.conversation_manager import (
 )
 from managers.summary_manager import trigger_background_summary
 from llm.provider_factory import LLMFactory
+import utils.config_manager as config_manager    
 
 class AgentEngine:
     def __init__(self, provider_name: str = "gemini", model_name: str = "gemini-3.1-flash-lite", api_key: str | None = None, autonomous: bool = False,):
@@ -44,7 +47,7 @@ class AgentEngine:
 
         tool_call_history = []
         turn_count = 0
-        MAX_TURNS = 15
+        MAX_TURNS = config_manager.get_max_turns()
 
         # In engine/agent_engine.py (Inside send_message, inside the while True loop)
         while True:

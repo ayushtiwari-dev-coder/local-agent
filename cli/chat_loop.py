@@ -4,11 +4,10 @@ import textwrap
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+
 from cli.constants import SEPARATOR, IN_CHAT_HELP, SUPPORTED_MODELS
 from cli.callbacks import (
-    reset_execution_counters,
-    cli_tool_approval_callback,
-    cli_status_callback
+    reset_execution_counters, cli_tool_approval_callback, cli_status_callback
 )
 from engine.agent_engine import AgentEngine
 from engine.thinking_configure import supports_thinking
@@ -16,7 +15,7 @@ from queries.message_queries import get_messages_by_conversation
 from queries.tool_log_queries import get_tool_logs_by_conversation
 from queries.memory_queries import search_memories
 from queries.conversation_queries import delete_conversation
-from utils import config_manager
+import utils.config_manager as config_manager
 
 console = Console()
 
@@ -26,6 +25,7 @@ def render_conversation_history(conversation_id: int) -> None:
     messages = get_messages_by_conversation(conversation_id)
     tool_logs = get_tool_logs_by_conversation(conversation_id)
     timeline = []
+    
     for m in messages:
         timeline.append((m["created_at"], m["id"], "message", m))
     for t in tool_logs:
@@ -35,25 +35,25 @@ def render_conversation_history(conversation_id: int) -> None:
     print(SEPARATOR)
     print(f" Conversation History (id={conversation_id})")
     print(SEPARATOR)
+    
     if not timeline:
         print(" (No messages yet - this conversation is empty.)")
         print(SEPARATOR)
         return
-
-    import textwrap
+        
     for _, _, kind, row in timeline:
         if kind == "message":
             icon = ROLE_ICONS.get(row["role"], row["role"])
             print(f"\n{icon} [{row['created_at']}]")
-            print(textwrap.fill(row["content"], width=90, initial_indent=" ", subsequent_indent=" "))
+            print(textwrap.fill(row["content"], width=90, initial_indent="  ", subsequent_indent="  "))
         else:
             status_icon = "✓" if row["status"] == "success" else "✗"
-            print(f"\n {status_icon} Tool Run: {row['tool_name']} [{row['created_at']}]")
-            print(f" args: {row['arguments']}")
+            print(f"\n  {status_icon} Tool Run: {row['tool_name']} [{row['created_at']}]")
+            print(f"  args: {row['arguments']}")
             if row.get("output"):
-                print(f" output: {row['output']}")
+                print(f"  output: {row['output']}")
             if row.get("error_message"):
-                print(f" error: {row['error_message']}")
+                print(f"  error: {row['error_message']}")
     print()
     print(SEPARATOR)
 
@@ -69,11 +69,11 @@ def show_tool_calls_only(conversation_id: int) -> None:
     for t in tool_logs:
         status_icon = "✓" if t["status"] == "success" else "✗"
         print(f"\n{status_icon} {t['tool_name']} [{t['created_at']}]")
-        print(f" args: {t['arguments']}")
+        print(f"  args: {t['arguments']}")
         if t.get("output"):
-            print(f" output: {t['output']}")
+            print(f"  output: {t['output']}")
         if t.get("error_message"):
-            print(f" error: {t['error_message']}")
+            print(f"  error: {t['error_message']}")
     print()
     print(SEPARATOR)
 
@@ -102,6 +102,7 @@ def enter_chat_session(conversation_id: int) -> None:
     provider_choice = config_manager.get_default_provider()
     model_choice = config_manager.get_active_model(provider_choice)
     resolved_key = config_manager.get_provider_api_key(provider_choice)
+    
     try:
         engine = AgentEngine(
             provider_name=provider_choice,
@@ -112,7 +113,7 @@ def enter_chat_session(conversation_id: int) -> None:
     except Exception as e:
         print(f"Initialization Error: {e}")
         return
-    
+        
     print(f"\n=== You're in conversation {conversation_id}. Type 'help' for commands. ===\n")
     render_conversation_history(conversation_id)
     
@@ -121,6 +122,7 @@ def enter_chat_session(conversation_id: int) -> None:
             user_input = input("You: ").strip()
             if not user_input:
                 continue
+                
             lowered = user_input.lower()
             if lowered in {"exit", "quit"}:
                 print("Goodbye!")
@@ -146,59 +148,91 @@ def enter_chat_session(conversation_id: int) -> None:
                     print("Conversation deleted successfully.")
                     break
                 continue
+                
             elif lowered == "/models":
                 print(SEPARATOR)
-                print(" Model Selection Selector")
-                available_providers = list(SUPPORTED_MODELS.keys())
-                for idx, prov in enumerate(available_providers, start=1):
-                    print(f" [{idx}] {prov.capitalize()}")
+                print(" Model & Parameter Controller")
+                print(" [1] Switch Active Model / Provider")
+                print(f" [2] Set Model Temperature (Current: {config_manager.get_temperature()})")
                 print(SEPARATOR)
-                choice = input(" Choose Provider (1-2): ").strip()
-                if choice.isdigit() and 1 <= int(choice) <= len(available_providers):
-                    provider_choice = available_providers[int(choice) - 1]
-                    models = SUPPORTED_MODELS[provider_choice]
+                
+                sub_choice = input(" Choose option (1-2): ").strip()
+                if sub_choice == "1":
                     print(SEPARATOR)
-                    print(f" Models available for [{provider_choice.upper()}]:")
-                    for idx, m in enumerate(models, start=1):
-                        print(f" [{idx}] {m['model']} ({m['desc']})")
+                    print(" Model Selection Selector")
+                    available_providers = list(SUPPORTED_MODELS.keys())
+                    for idx, prov in enumerate(available_providers, start=1):
+                        print(f" [{idx}] {prov.capitalize()}")
                     print(SEPARATOR)
-                    pick = input(f" Select model (1-{len(models)}): ").strip()
-                    if pick.isdigit() and 1 <= int(pick) <= len(models):
-                        model_choice = models[int(pick) - 1]["model"]
-                        config_manager.set_active_model(provider_choice, model_choice)
-                        config_manager.set_default_provider(provider_choice)
-                        resolved_key = config_manager.get_provider_api_key(provider_choice)
+                    
+                    choice = input(" Choose Provider (1-2): ").strip()
+                    if choice.isdigit() and 1 <= int(choice) <= len(available_providers):
+                        provider_choice = available_providers[int(choice) - 1]
+                        models = SUPPORTED_MODELS[provider_choice]
+                        print(SEPARATOR)
+                        print(f" Models available for [{provider_choice.upper()}]:")
+                        for idx, m in enumerate(models, start=1):
+                            print(f" [{idx}] {m['model']} ({m['desc']})")
+                        print(SEPARATOR)
                         
-                        # Rebuild local Agent Engine instance
-                        print("\nRe-booting Assistant with new model...")
-                        engine = AgentEngine(
-                            provider_name=provider_choice,
-                            model_name=model_choice,
-                            api_key=resolved_key,
-                            autonomous=False
-                        )
-                        print(f"Assistant is now running: [{provider_choice.upper()}] - {model_choice}\n")
+                        pick = input(f" Select model (1-{len(models)}): ").strip()
+                        if pick.isdigit() and 1 <= int(pick) <= len(models):
+                            model_choice = models[int(pick) - 1]["model"]
+                            config_manager.set_active_model(provider_choice, model_choice)
+                            config_manager.set_default_provider(provider_choice)
+                            resolved_key = config_manager.get_provider_api_key(provider_choice)
+                            
+                            print("\nRe-booting Assistant with new model...")
+                            engine = AgentEngine(
+                                provider_name=provider_choice,
+                                model_name=model_choice,
+                                api_key=resolved_key,
+                                autonomous=False
+                            )
+                            print(f"Assistant is now running: [{provider_choice.upper()}] - {model_choice}\n")
+                
+                elif sub_choice == "2":
+                    if "gemini-3" in model_choice.lower() and "thinking" in config_manager.get_thinking_level().lower():
+                        print(f"\n[Note] Native reasoning/thinking is currently active on {model_choice}.")
+                        print("Reasoning models typically override manual temperature configurations.\n")
+                    
+                    print(" Choose a value between 0.0 (deterministic/coding) and 1.5 (creative/emails).")
+                    val = input(f" New Temperature (Current: {config_manager.get_temperature()}): ").strip()
+                    try:
+                        temp_val = float(val)
+                        if 0.0 <= temp_val <= 2.0:
+                            config_manager.set_temperature(temp_val)
+                            print(f"\n[Success] Temperature updated to {config_manager.get_temperature()}!")
+                            print("This parameter will be applied to your next message automatically.\n")
+                        else:
+                            print(" Out of range. Choose a value between 0.0 and 2.0.")
+                    except ValueError:
+                        print(" Invalid input. Please enter a numerical value.")
                 continue
+                
             elif lowered == "/thinking":
                 if not supports_thinking(model_choice):
-                    print(f"\nThe current model [{model_choice}] does not support thinking budget levels.\n")
+                    print(f"\nThe current model [{model_choice}] does not support reasoning/thinking budgets.\n")
                     continue
                 print(f"\nCurrent thinking level: {config_manager.get_thinking_level().upper()}")
-                print("Select a new reasoning/thinking budget:")
-                print(" [1] Off")
-                print(" [2] Low")
-                print(" [3] Medium")
-                print(" [4] High")
-                level_choice = input(" Choose level (1-4): ").strip()
+                print(" [1] Off (Fastest, standard generation)")
+                print(" [2] Low (Light reasoning)")
+                print(" [3] Medium (Balanced thought)")
+                print(" [4] High (Deepest system analysis)")
+                print(SEPARATOR)
+                
+                pick = input(" Select thinking level (1-4): ").strip()
                 level_map = {"1": "off", "2": "low", "3": "medium", "4": "high"}
-                selected_level = level_map.get(level_choice)
+                selected_level = level_map.get(pick)
                 if selected_level:
                     config_manager.set_thinking_level(selected_level)
-                    print(f"Thinking level updated to: {selected_level.upper()}\n")
+                    print(f"\n[Success] Thinking level updated to {config_manager.get_thinking_level().upper()}!")
+                    print("Your next message will automatically utilize this reasoning depth.\n")
                 else:
-                    print("Invalid choice. Thinking level unchanged.\n")
+                    print(" Invalid selection.")
                 continue
             
+            # --- Standard Message Dispatch ---
             reset_execution_counters()
             response_text = engine.send_message(
                 conversation_id=conversation_id,
@@ -207,8 +241,6 @@ def enter_chat_session(conversation_id: int) -> None:
                 status_callback=cli_status_callback
             )
             print(f"\n Assistant: {response_text}\n")
-        except KeyboardInterrupt:
-            print("\nSession interrupted. Returning to main menu.")
-            break
+            
         except Exception as e:
-            print(f"\nError encountered: {e}\n")
+            print(f"Error during execution loop: {e}")

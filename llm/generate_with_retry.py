@@ -1,18 +1,24 @@
 # FILE: engine/generate_with_retry.py
 import time
+import utils.config_manager as config_manager
 
 def generate_with_retry(
     request_fn, 
     is_quota_error_fn, 
     status_callback=None, 
-    max_attempts: int = 3,
-    base_delay: float = 2.0
+    max_attempts: int = None,
+    base_delay: float = None
 ) -> any:
     """
     Generic template to safely handle content generation and API requests for any LLM provider.
     Handles rate-limits (429s), transient exceptions, empty responses, and exponential backoff
     while updating the system console via status callbacks.
     """
+    retry_settings = config_manager.get_api_retry_settings()
+    if max_attempts is None:
+        max_attempts = retry_settings.get("max_attempts", 3)
+    if base_delay is None:
+            base_delay = retry_settings.get("base_delay", 2.0)
     for attempt in range(max_attempts):
         try:
             # 1. Execute the actual provider request

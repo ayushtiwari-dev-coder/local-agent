@@ -5,11 +5,11 @@ FILE: database_test.py
 # database_test.py
 import json
 from database.connection import get_connection
+import utils.config_manager as config_manager
 
 def format_json_arguments(args_str: str) -> str:
     """Attempts to cleanly indent and format stringified JSON arguments."""
     try:
-        # Load the arguments string to a dictionary and format with indent
         parsed = json.loads(args_str)
         return json.dumps(parsed, indent=4)
     except Exception:
@@ -21,15 +21,14 @@ def print_audit_report() -> None:
     try:
         # 1. Retrieve the most recent active conversation
         cursor = conn.execute("""
-            SELECT id, title, created_at 
-            FROM conversations 
-            ORDER BY id DESC 
+            SELECT id, title, created_at
+            FROM conversations
+            ORDER BY id DESC
             LIMIT 1;
         """)
         latest_conv = cursor.fetchone()
-        
         if not latest_conv:
-            print("\n❌ No conversations found in the local database.")
+            print("\n ✗ No conversations found in the local database.")
             return
             
         conv_id = latest_conv["id"]
@@ -38,75 +37,77 @@ def print_audit_report() -> None:
         
         print("\n" + "=" * 80)
         print(f"📊 LATEST CONVERSATION AUDIT REPORT")
-        print(f"   ID: {conv_id}")
-        print(f"   Title: \"{title}\"")
-        print(f"   Created At: {created}")
+        print(f"  ID: {conv_id}")
+        print(f"  Title: \"{title}\"")
+        print(f"  Created At: {created}")
         print("=" * 80)
         
         # 2. Fetch and format all tool execution logs chronologically
         cursor = conn.execute("""
-            SELECT id, tool_name, arguments, output, status, error_message, created_at 
-            FROM tool_logs 
-            WHERE conversation_id = ? 
+            SELECT id, tool_name, arguments, output, status, error_message, created_at
+            FROM tool_logs
+            WHERE conversation_id = ?
             ORDER BY id ASC;
         """, (conv_id,))
         logs = cursor.fetchall()
         
         if not logs:
-            print("\nℹ️ No tool executions logged for this conversation yet.")
+            print("\n ℹ️ No tool executions logged for this conversation yet.")
         else:
-            print(f"\n🛠️ TOOL LOGS CHRONOLOGICAL TIMELINE ({len(logs)} steps found):")
+            print(f"\n 🛠️ TOOL LOGS CHRONOLOGICAL TIMELINE ({len(logs)} steps found):")
             for idx, log in enumerate(logs, start=1):
                 print("-" * 80)
-                status_header = "✅ SUCCESS" if log["status"] == "success" else "❌ ERROR"
+                status_header = " ✓ SUCCESS" if log["status"] == "success" else " ✗ ERROR"
                 print(f"👉 Step #{idx} | Database Log ID: {log['id']} | Timestamp: {log['created_at']}")
-                print(f"   Tool Name: {log['tool_name']}")
-                print(f"   Status:    {status_header}")
+                print(f"  Tool Name: {log['tool_name']}")
+                print(f"  Status: {status_header}")
                 
                 # Format arguments cleanly
-                print(f"   Arguments:")
+                print(f"  Arguments:")
                 formatted_args = format_json_arguments(log["arguments"])
                 for line in formatted_args.splitlines():
-                    print(f"      {line}")
-                
+                    print(f"    {line}")
+                    
                 # Render output or error message cleanly
                 if log["status"] == "success":
-                    print(f"   Output:")
+                    print(f"  Output:")
                     out = log["output"] or "None"
-                    # Truncate overly long outputs (e.g., massive file reads) to keep CLI neat
-                    if len(out) > 500:
-                        out = out[:500] + "\n      ... [OUTPUT TRUNCATED FOR READABILITY] ..."
+                    
+                    # --- FIXED TRUNCATION METHOD HERE ---
+                    long_output_threshold = config_manager.get_cli_log_truncation_limit()
+                    if len(out) > long_output_threshold:
+                        out = out[:long_output_threshold] + "\n  ... [OUTPUT TRUNCATED FOR READABILITY] ..."
                     for line in out.splitlines():
-                        print(f"      {line}")
+                        print(f"    {line}")
                 else:
-                    print(f"   Error Message:")
+                    print(f"  Error Message:")
                     err = log["error_message"] or "Unknown database execution error"
                     for line in err.splitlines():
-                        print(f"      {line}")
+                        print(f"    {line}")
                         
         # 3. Retrieve and sum total token consumption
         cursor = conn.execute("""
-            SELECT model_name, 
-                   SUM(prompt_tokens) as total_prompt, 
-                   SUM(completion_tokens) as total_comp, 
-                   SUM(total_tokens) as grand_total 
-            FROM model_usage 
-            WHERE conversation_id = ? 
+            SELECT model_name,
+                   SUM(prompt_tokens) as total_prompt,
+                   SUM(completion_tokens) as total_comp,
+                   SUM(total_tokens) as grand_total
+            FROM model_usage
+            WHERE conversation_id = ?
             GROUP BY model_name;
         """, (conv_id,))
         usages = cursor.fetchall()
         
         if usages:
             print("\n" + "=" * 80)
-            print("📈 CUMULATIVE TOKEN CONSUMPTION FOR THIS CONVERSATION:")
+            print(" 📈 CUMULATIVE TOKEN CONSUMPTION FOR THIS CONVERSATION:")
             print("-" * 80)
             for use in usages:
-                print(f"   Model used: {use['model_name']}")
-                print(f"     Prompt Tokens:     {use['total_prompt']:,}")
-                print(f"     Completion Tokens: {use['total_comp']:,}")
-                print(f"     Total Tokens:      {use['grand_total']:,}")
-        print("=" * 80 + "\n")
-        
+                print(f"  Model used: {use['model_name']}")
+                print(f"  Prompt Tokens:      {use['total_prompt']:,}")
+                print(f"  Completion Tokens:  {use['total_comp']:,}")
+                print(f"  Total Tokens:       {use['grand_total']:,}")
+            print("=" * 80 + "\n")
+            
     finally:
         conn.close()
 
@@ -275,11 +276,10 @@ import textwrap
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+
 from cli.constants import SEPARATOR, IN_CHAT_HELP, SUPPORTED_MODELS
 from cli.callbacks import (
-    reset_execution_counters,
-    cli_tool_approval_callback,
-    cli_status_callback
+    reset_execution_counters, cli_tool_approval_callback, cli_status_callback
 )
 from engine.agent_engine import AgentEngine
 from engine.thinking_configure import supports_thinking
@@ -287,7 +287,7 @@ from queries.message_queries import get_messages_by_conversation
 from queries.tool_log_queries import get_tool_logs_by_conversation
 from queries.memory_queries import search_memories
 from queries.conversation_queries import delete_conversation
-from utils import config_manager
+import utils.config_manager as config_manager
 
 console = Console()
 
@@ -297,6 +297,7 @@ def render_conversation_history(conversation_id: int) -> None:
     messages = get_messages_by_conversation(conversation_id)
     tool_logs = get_tool_logs_by_conversation(conversation_id)
     timeline = []
+    
     for m in messages:
         timeline.append((m["created_at"], m["id"], "message", m))
     for t in tool_logs:
@@ -306,25 +307,25 @@ def render_conversation_history(conversation_id: int) -> None:
     print(SEPARATOR)
     print(f" Conversation History (id={conversation_id})")
     print(SEPARATOR)
+    
     if not timeline:
         print(" (No messages yet - this conversation is empty.)")
         print(SEPARATOR)
         return
-
-    import textwrap
+        
     for _, _, kind, row in timeline:
         if kind == "message":
             icon = ROLE_ICONS.get(row["role"], row["role"])
             print(f"\n{icon} [{row['created_at']}]")
-            print(textwrap.fill(row["content"], width=90, initial_indent=" ", subsequent_indent=" "))
+            print(textwrap.fill(row["content"], width=90, initial_indent="  ", subsequent_indent="  "))
         else:
             status_icon = "✓" if row["status"] == "success" else "✗"
-            print(f"\n {status_icon} Tool Run: {row['tool_name']} [{row['created_at']}]")
-            print(f" args: {row['arguments']}")
+            print(f"\n  {status_icon} Tool Run: {row['tool_name']} [{row['created_at']}]")
+            print(f"  args: {row['arguments']}")
             if row.get("output"):
-                print(f" output: {row['output']}")
+                print(f"  output: {row['output']}")
             if row.get("error_message"):
-                print(f" error: {row['error_message']}")
+                print(f"  error: {row['error_message']}")
     print()
     print(SEPARATOR)
 
@@ -340,11 +341,11 @@ def show_tool_calls_only(conversation_id: int) -> None:
     for t in tool_logs:
         status_icon = "✓" if t["status"] == "success" else "✗"
         print(f"\n{status_icon} {t['tool_name']} [{t['created_at']}]")
-        print(f" args: {t['arguments']}")
+        print(f"  args: {t['arguments']}")
         if t.get("output"):
-            print(f" output: {t['output']}")
+            print(f"  output: {t['output']}")
         if t.get("error_message"):
-            print(f" error: {t['error_message']}")
+            print(f"  error: {t['error_message']}")
     print()
     print(SEPARATOR)
 
@@ -373,6 +374,7 @@ def enter_chat_session(conversation_id: int) -> None:
     provider_choice = config_manager.get_default_provider()
     model_choice = config_manager.get_active_model(provider_choice)
     resolved_key = config_manager.get_provider_api_key(provider_choice)
+    
     try:
         engine = AgentEngine(
             provider_name=provider_choice,
@@ -383,7 +385,7 @@ def enter_chat_session(conversation_id: int) -> None:
     except Exception as e:
         print(f"Initialization Error: {e}")
         return
-    
+        
     print(f"\n=== You're in conversation {conversation_id}. Type 'help' for commands. ===\n")
     render_conversation_history(conversation_id)
     
@@ -392,6 +394,7 @@ def enter_chat_session(conversation_id: int) -> None:
             user_input = input("You: ").strip()
             if not user_input:
                 continue
+                
             lowered = user_input.lower()
             if lowered in {"exit", "quit"}:
                 print("Goodbye!")
@@ -417,59 +420,91 @@ def enter_chat_session(conversation_id: int) -> None:
                     print("Conversation deleted successfully.")
                     break
                 continue
+                
             elif lowered == "/models":
                 print(SEPARATOR)
-                print(" Model Selection Selector")
-                available_providers = list(SUPPORTED_MODELS.keys())
-                for idx, prov in enumerate(available_providers, start=1):
-                    print(f" [{idx}] {prov.capitalize()}")
+                print(" Model & Parameter Controller")
+                print(" [1] Switch Active Model / Provider")
+                print(f" [2] Set Model Temperature (Current: {config_manager.get_temperature()})")
                 print(SEPARATOR)
-                choice = input(" Choose Provider (1-2): ").strip()
-                if choice.isdigit() and 1 <= int(choice) <= len(available_providers):
-                    provider_choice = available_providers[int(choice) - 1]
-                    models = SUPPORTED_MODELS[provider_choice]
+                
+                sub_choice = input(" Choose option (1-2): ").strip()
+                if sub_choice == "1":
                     print(SEPARATOR)
-                    print(f" Models available for [{provider_choice.upper()}]:")
-                    for idx, m in enumerate(models, start=1):
-                        print(f" [{idx}] {m['model']} ({m['desc']})")
+                    print(" Model Selection Selector")
+                    available_providers = list(SUPPORTED_MODELS.keys())
+                    for idx, prov in enumerate(available_providers, start=1):
+                        print(f" [{idx}] {prov.capitalize()}")
                     print(SEPARATOR)
-                    pick = input(f" Select model (1-{len(models)}): ").strip()
-                    if pick.isdigit() and 1 <= int(pick) <= len(models):
-                        model_choice = models[int(pick) - 1]["model"]
-                        config_manager.set_active_model(provider_choice, model_choice)
-                        config_manager.set_default_provider(provider_choice)
-                        resolved_key = config_manager.get_provider_api_key(provider_choice)
+                    
+                    choice = input(" Choose Provider (1-2): ").strip()
+                    if choice.isdigit() and 1 <= int(choice) <= len(available_providers):
+                        provider_choice = available_providers[int(choice) - 1]
+                        models = SUPPORTED_MODELS[provider_choice]
+                        print(SEPARATOR)
+                        print(f" Models available for [{provider_choice.upper()}]:")
+                        for idx, m in enumerate(models, start=1):
+                            print(f" [{idx}] {m['model']} ({m['desc']})")
+                        print(SEPARATOR)
                         
-                        # Rebuild local Agent Engine instance
-                        print("\nRe-booting Assistant with new model...")
-                        engine = AgentEngine(
-                            provider_name=provider_choice,
-                            model_name=model_choice,
-                            api_key=resolved_key,
-                            autonomous=False
-                        )
-                        print(f"Assistant is now running: [{provider_choice.upper()}] - {model_choice}\n")
+                        pick = input(f" Select model (1-{len(models)}): ").strip()
+                        if pick.isdigit() and 1 <= int(pick) <= len(models):
+                            model_choice = models[int(pick) - 1]["model"]
+                            config_manager.set_active_model(provider_choice, model_choice)
+                            config_manager.set_default_provider(provider_choice)
+                            resolved_key = config_manager.get_provider_api_key(provider_choice)
+                            
+                            print("\nRe-booting Assistant with new model...")
+                            engine = AgentEngine(
+                                provider_name=provider_choice,
+                                model_name=model_choice,
+                                api_key=resolved_key,
+                                autonomous=False
+                            )
+                            print(f"Assistant is now running: [{provider_choice.upper()}] - {model_choice}\n")
+                
+                elif sub_choice == "2":
+                    if "gemini-3" in model_choice.lower() and "thinking" in config_manager.get_thinking_level().lower():
+                        print(f"\n[Note] Native reasoning/thinking is currently active on {model_choice}.")
+                        print("Reasoning models typically override manual temperature configurations.\n")
+                    
+                    print(" Choose a value between 0.0 (deterministic/coding) and 1.5 (creative/emails).")
+                    val = input(f" New Temperature (Current: {config_manager.get_temperature()}): ").strip()
+                    try:
+                        temp_val = float(val)
+                        if 0.0 <= temp_val <= 2.0:
+                            config_manager.set_temperature(temp_val)
+                            print(f"\n[Success] Temperature updated to {config_manager.get_temperature()}!")
+                            print("This parameter will be applied to your next message automatically.\n")
+                        else:
+                            print(" Out of range. Choose a value between 0.0 and 2.0.")
+                    except ValueError:
+                        print(" Invalid input. Please enter a numerical value.")
                 continue
+                
             elif lowered == "/thinking":
                 if not supports_thinking(model_choice):
-                    print(f"\nThe current model [{model_choice}] does not support thinking budget levels.\n")
+                    print(f"\nThe current model [{model_choice}] does not support reasoning/thinking budgets.\n")
                     continue
                 print(f"\nCurrent thinking level: {config_manager.get_thinking_level().upper()}")
-                print("Select a new reasoning/thinking budget:")
-                print(" [1] Off")
-                print(" [2] Low")
-                print(" [3] Medium")
-                print(" [4] High")
-                level_choice = input(" Choose level (1-4): ").strip()
+                print(" [1] Off (Fastest, standard generation)")
+                print(" [2] Low (Light reasoning)")
+                print(" [3] Medium (Balanced thought)")
+                print(" [4] High (Deepest system analysis)")
+                print(SEPARATOR)
+                
+                pick = input(" Select thinking level (1-4): ").strip()
                 level_map = {"1": "off", "2": "low", "3": "medium", "4": "high"}
-                selected_level = level_map.get(level_choice)
+                selected_level = level_map.get(pick)
                 if selected_level:
                     config_manager.set_thinking_level(selected_level)
-                    print(f"Thinking level updated to: {selected_level.upper()}\n")
+                    print(f"\n[Success] Thinking level updated to {config_manager.get_thinking_level().upper()}!")
+                    print("Your next message will automatically utilize this reasoning depth.\n")
                 else:
-                    print("Invalid choice. Thinking level unchanged.\n")
+                    print(" Invalid selection.")
                 continue
             
+            # --- Standard Message Dispatch ---
             reset_execution_counters()
             response_text = engine.send_message(
                 conversation_id=conversation_id,
@@ -478,11 +513,9 @@ def enter_chat_session(conversation_id: int) -> None:
                 status_callback=cli_status_callback
             )
             print(f"\n Assistant: {response_text}\n")
-        except KeyboardInterrupt:
-            print("\nSession interrupted. Returning to main menu.")
-            break
+            
         except Exception as e:
-            print(f"\nError encountered: {e}\n")
+            print(f"Error during execution loop: {e}")
 
 ============================================================
 FILE: cli\constants.py
@@ -534,27 +567,27 @@ FILE: cli\menu_flows.py
 
 # cli/menu_flows.py
 import sys
-from rich.console import Console
-from rich.panel import Panel
 from cli.constants import SEPARATOR, SUPPORTED_MODELS
+from database.table_generator import create_tables
+from queries.conversation_queries import get_all_conversations, create_conversation
+from managers.user_manager import get_active_user, register_user
 from cli.callbacks import validate_api_key
 from cli.chat_loop import enter_chat_session
-from managers.user_manager import get_active_user, register_user
-from queries.conversation_queries import get_all_conversations, update_conversation_title, delete_conversation
-from managers.conversation_manager import start_new_conversation
-from utils import config_manager
-
-console = Console()
+import utils.config_manager as config_manager
 
 def display_conversation_list() -> list[dict]:
-    """Prints conversations chronologically: oldest on top, latest/newest on bottom."""
-    conversations = get_all_conversations()
+    """Retrieves and lists conversations chronologically: oldest on top, latest/newest on bottom."""
+    conversations = get_all_conversations() # Returns newest first from DB query
+    
+    # Reverse so that the latest/newest conversation is at the bottom of the list
     chronological_convs = list(reversed(conversations))
+    
     print(SEPARATOR)
     if not chronological_convs:
-        print(" No conversations yet. You'll start a fresh one.")
+        print(" (No active conversations found. Choose option [1] to start a new session.)")
         print(SEPARATOR)
         return chronological_convs
+        
     print(" Your Conversations (Chronological):\n")
     for idx, conv in enumerate(chronological_convs, start=1):
         created = conv.get("created_at", "unknown time")
@@ -577,7 +610,6 @@ def prompt_pick_conversation(conversations: list[dict]) -> dict | None:
     return conversations[index]
 
 def main_menu(user_name: str) -> str:
-    """Primary routing screen."""
     print(SEPARATOR)
     print(f"=== Hello, {user_name}! What would you like to do? ===")
     print(" [1] Start a NEW conversation")
@@ -607,9 +639,10 @@ def rename_conversation_flow() -> None:
         return
     new_title = input(f" New title for \"{target['title']}\": ").strip()
     if not new_title:
-        print(" Title cannot be empty. Cancelled.")
+        print(" Title cannot be blank. Cancelled.")
         return
     try:
+        from queries.conversation_queries import update_conversation_title
         updated = update_conversation_title(target["id"], new_title)
         print(f" Renamed to \"{updated['title']}\".")
     except ValueError as e:
@@ -624,11 +657,13 @@ def delete_conversation_flow() -> None:
     if not target:
         return
     print(SEPARATOR)
-    confirm = input(f" Are you absolutely sure you want to delete '{target['title']}'? (y/n): ").strip().lower()
+    confirm = input(f" Are you sure you want to delete '{target['title']}'? (y/n): ").strip().lower()
     if confirm == "y":
         try:
+            from queries.conversation_queries import delete_conversation
             delete_conversation(target["id"])
-            console.print(f"[bold red] Successfully deleted Conversation ID {target['id']}.[/bold red]\n")
+            from rich.console import Console
+            Console().print(f"[bold red] Successfully deleted Conversation ID {target['id']}.[/bold red]\n")
         except Exception as e:
             print(f" Error during deletion execution: {e}")
     else:
@@ -649,14 +684,14 @@ def configure_provider_flow(provider_name: str = None) -> bool:
         else:
             print(" Invalid selection. Returning.")
             return False
-    
+            
     print(SEPARATOR)
     print(f" Setting up API key for: [{provider_name.upper()}]")
     key_input = input(" Paste your API key: ").strip()
     if not key_input:
         print(" API Key cannot be blank.")
         return False
-    
+        
     is_valid = validate_api_key(provider_name, key_input)
     if is_valid:
         print(" API key verified successfully!")
@@ -665,7 +700,7 @@ def configure_provider_flow(provider_name: str = None) -> bool:
         if allow != "y":
             print(" Setup cancelled. Key not saved.")
             return False
-    
+            
     config_manager.set_provider_api_key(provider_name, key_input)
     print(f" Successfully configured {provider_name.upper()}!")
     return True
@@ -682,9 +717,11 @@ def provider_management_flow() -> None:
         print(f" [1] View Configured Status (Gemini: {gemini_status} | Groq: {groq_status})")
         print(" [2] Add / Edit a Provider API Key")
         print(f" [3] Change Default Active Provider (Current: {active_default.upper()})")
-        print(" [4] Back to Main Menu")
+        print(" [4] Edit Advanced Agent Settings (Max Turns, Sandbox, etc.)")
+        print(" [5] Back to Main Menu")
         print(SEPARATOR)
-        choice = input(" Choose option (1-4): ").strip()
+        
+        choice = input(" Choose option (1-5): ").strip()
         if choice == "1":
             print(SEPARATOR)
             print(" Current Configured Status:")
@@ -705,6 +742,102 @@ def provider_management_flow() -> None:
                 config_manager.set_default_provider(target_default)
                 print(f" Default provider changed to {target_default.upper()}.")
         elif choice == "4":
+            advanced_settings_flow()
+        elif choice == "5":
+            break
+
+# Inside advanced_settings_flow() in cli/menu_flows.py [14, 15]
+def advanced_settings_flow() -> None:
+    while True:
+        print(SEPARATOR)
+        print(" Advanced Agent System Configuration Settings")
+        print(SEPARATOR)
+        print(f" [1] Adjust ReAct Loop Maximum Turns (Current: {config_manager.get_max_turns()})")
+        print(f" [2] Set Sliding Window Context Size (Current: {config_manager.get_max_context_tokens()} tokens)")
+        print(f" [3] Modify Background Summary Threshold (Current: {config_manager.get_summary_trigger_count()} messages)")
+        print(f" [4] Configure Safe Sandbox Limits (Current: {config_manager.get_sandbox_settings()['memory_limit']} RAM)")
+        print(f" [5] Set Local Log Truncation length (Current: {config_manager.get_cli_log_truncation_limit()} chars)")
+        print(f" [6] Set Memory Category Similarity Match (Current: {config_manager.get_memory_similarity_threshold()})") # --- NEW
+        print(f" [7] Configure Network Retry Bounds (Current: {config_manager.get_api_retry_settings()['max_attempts']} tries)") # --- NEW
+        print(" [8] Back to Settings Menu")
+        print(SEPARATOR)
+        
+        choice = input(" Select option (1-8): ").strip()
+        if choice == "1":
+            val = input(" Enter maximum execution steps (e.g. 10 to 30): ").strip()
+            if val.isdigit():
+                config_manager.set_max_turns(int(val))
+                print(f" Max turns successfully updated to {config_manager.get_max_turns()}!")
+            else:
+                print(" Invalid input.")
+                
+        elif choice == "2":
+            val = input(" Enter max context window size (e.g., 8192 to 200000): ").strip()
+            if val.isdigit():
+                config_manager.set_max_context_tokens(int(val))
+                print(f" Max tokens successfully updated to {config_manager.get_max_context_tokens()}!")
+            else:
+                print(" Invalid input.")
+                
+        elif choice == "3":
+            val = input(" Enter trigger count of un-summarized messages (e.g., 10 to 50): ").strip()
+            if val.isdigit():
+                config_manager.set_summary_trigger_count(int(val))
+                print(f" Trigger count successfully updated to {config_manager.get_summary_trigger_count()}!")
+            else:
+                print(" Invalid input.")
+                
+        elif choice == "4":
+            sandbox = config_manager.get_sandbox_settings()
+            mem = input(f" Enter Docker container RAM limit (e.g. 512m, 1g, 2g) [Current: {sandbox['memory_limit']}]: ").strip()
+            timeout = input(f" Enter execution timeout in seconds (e.g. 15, 30, 60) [Current: {sandbox['timeout_seconds']}]: ").strip()
+            if timeout.isdigit() and mem:
+                config_manager.set_sandbox_settings(
+                    memory_limit=mem,
+                    cpu_limit=sandbox["cpu_limit"],
+                    timeout_seconds=int(timeout)
+                )
+                print(" Sandbox safety bounds updated successfully!")
+            else:
+                print(" Invalid inputs.")
+                
+        elif choice == "5":
+            val = input(" Enter max characters displayed for logs (e.g. 200 to 2000): ").strip()
+            if val.isdigit():
+                config_manager.set_cli_log_truncation_limit(int(val))
+                print(f" Truncation limit successfully updated to {config_manager.get_cli_log_truncation_limit()} characters!")
+            else:
+                print(" Invalid input.")
+                
+        elif choice == "6":
+            val = input(" Enter clustering similarity score (0.0 to 1.0) [e.g. 0.80]: ").strip()
+            try:
+                score = float(val)
+                if 0.0 <= score <= 1.0:
+                    config_manager.set_memory_similarity_threshold(score)
+                    print(f" Memory matching threshold successfully updated to {config_manager.get_memory_similarity_threshold()}!")
+                else:
+                    print(" Out of range. Value must be between 0.0 and 1.0.")
+            except ValueError:
+                print(" Invalid input.")
+                
+        elif choice == "7":
+            retry = config_manager.get_api_retry_settings()
+            attempts = input(f" Enter maximum retry attempts (e.g. 3, 5) [Current: {retry['max_attempts']}]: ").strip()
+            delay = input(f" Enter base delay in seconds (e.g. 2.0, 5.0) [Current: {retry['base_delay']}]: ").strip()
+            if attempts.isdigit():
+                try:
+                    config_manager.set_api_retry_settings(
+                        max_attempts=int(attempts),
+                        base_delay=float(delay)
+                    )
+                    print(" Network API retry bounds successfully updated!")
+                except ValueError:
+                    print(" Invalid base delay format.")
+            else:
+                print(" Invalid attempts format.")
+                
+        elif choice == "8":
             break
 
 def run_main_app_loop() -> None:
@@ -722,37 +855,38 @@ def run_main_app_loop() -> None:
                 break
             except ValueError as e:
                 print(f"Validation Error: {e}. Please try again.\n")
-    
+                
     if not config_manager.has_any_provider_configured():
         print("\n Welcome! No LLM providers have been configured yet.")
         print(" Let's set up your first API key before getting started.")
         configure_provider_flow()
-    
+        
     if not config_manager.has_any_provider_configured():
         print("\n An active LLM provider API key is required to run the agent. Exiting.")
         sys.exit(1)
-    
+        
     while True:
         choice = main_menu(user["name"])
-        if choice == "exit":
-            print("Goodbye!")
-            break
-        elif choice == "new":
+        if choice == "new":
             title = input(" Title for this conversation (blank = 'New Conversation'): ").strip()
-            session = start_new_conversation(user_id=user["id"], title=title or "New Conversation")
+            session = create_conversation(user_id=user["id"], title=title or "New Conversation")
             print(f"\n Started new conversation (id={session['id']}).")
             enter_chat_session(session["id"])
         elif choice == "resume":
             convs = display_conversation_list()
-            target = prompt_pick_conversation(convs)
-            if target:
-                enter_chat_session(target["id"])
+            selected = prompt_pick_conversation(convs)
+            if selected:
+                enter_chat_session(selected["id"])
         elif choice == "rename":
             rename_conversation_flow()
         elif choice == "delete":
             delete_conversation_flow()
         elif choice == "config":
             provider_management_flow()
+        elif choice == "exit":
+            print("Goodbye!")
+            break
+
 
 ============================================================
 FILE: cli\__init__.py
@@ -1070,6 +1204,8 @@ FILE: engine\agent_engine.py
 
 import os
 import json
+
+from fastapi import utils
 from tools.registry import get_all_tools
 from llm.loop_protector import check_for_infinite_loop, _extract_paths
 from engine.handle_permissions import determine_and_execute_tool
@@ -1078,6 +1214,8 @@ from managers.conversation_manager import (
 )
 from managers.summary_manager import trigger_background_summary
 from llm.provider_factory import LLMFactory
+from utils.config.settings import get_max_turns
+import utils.config_manager as config_manager    
 
 class AgentEngine:
     def __init__(self, provider_name: str = "gemini", model_name: str = "gemini-3.1-flash-lite", api_key: str | None = None, autonomous: bool = False,):
@@ -1112,7 +1250,7 @@ class AgentEngine:
 
         tool_call_history = []
         turn_count = 0
-        MAX_TURNS = 15
+        MAX_TURNS = config_manager.get_max_turns()
 
         # In engine/agent_engine.py (Inside send_message, inside the while True loop)
         while True:
@@ -1427,19 +1565,25 @@ FILE: llm\generate_with_retry.py
 
 # FILE: engine/generate_with_retry.py
 import time
+import utils.config_manager as config_manager
 
 def generate_with_retry(
     request_fn, 
     is_quota_error_fn, 
     status_callback=None, 
-    max_attempts: int = 3,
-    base_delay: float = 2.0
+    max_attempts: int = None,
+    base_delay: float = None
 ) -> any:
     """
     Generic template to safely handle content generation and API requests for any LLM provider.
     Handles rate-limits (429s), transient exceptions, empty responses, and exponential backoff
     while updating the system console via status callbacks.
     """
+    retry_settings = config_manager.get_api_retry_settings()
+    if max_attempts is None:
+        max_attempts = retry_settings.get("max_attempts", 3)
+    if base_delay is None:
+            base_delay = retry_settings.get("base_delay", 2.0)
     for attempt in range(max_attempts):
         try:
             # 1. Execute the actual provider request
@@ -1513,6 +1657,7 @@ FILE: llm\loop_protector.py
 ============================================================
 
 import json
+import utils.config_manager as config_manager
 
 def _extract_paths(tool_name: str, tool_args: dict) -> set[str] | None:
     """For file tools, pull out the set of file paths being touched, regardless of content."""
@@ -1549,13 +1694,19 @@ def check_for_infinite_loop(
                 failed_identical_calls += 1
         else:
             break
+    limits=config_manager.get_loop_guard() 
+    max_failed = limits.get("max_failed_attempts", 3)
+    max_success = limits.get("max_success_attempts", 2)
+
+
+
 
     # Halt if it keeps trying the exact same failed action blindly (back-to-back)
-    if failed_identical_calls >= 3:
+    if failed_identical_calls >= max_failed:
         return True, f"Error: Halting. '{tool_name}' already failed consecutively with these exact params: {tool_args}.", serialized_args
 
     # Halt if it keeps repeating an action that already succeeded (back-to-back) (wasting tokens)
-    if total_identical_calls >= 2:
+    if total_identical_calls >= max_success:
         return True, f"Error: Halting. '{tool_name}' already succeeded consecutively with these exact params: {tool_args}.", serialized_args
 
     return False, None, serialized_args
@@ -2042,6 +2193,7 @@ from queries.conversation_queries import create_conversation
 from queries.message_queries import create_message
 from queries.model_usage_queries import log_model_usage
 from queries.tool_log_queries import log_tool_execution
+import utils.config_manager as config_manager   
 
 def start_new_conversation(user_id: int = None, title: str = "New Conversation") -> dict:
     """
@@ -2061,8 +2213,6 @@ def save_user_message(conversation_id: int, content: str) -> dict:
     return create_message(conversation_id, role="user", content=clean_content)
 
 
-# A safe local default limit (e.g., 100,000 tokens)
-MAX_CONTEXT_TOKENS = 100000
 
 def _estimate_tokens(messages: list[dict]) -> int:
     
@@ -2086,12 +2236,14 @@ def _estimate_tokens(messages: list[dict]) -> int:
     return total_tokens
 
 
-def compile_llm_context(conversation_id: int, max_tokens: int = MAX_CONTEXT_TOKENS) -> list[dict]:
+def compile_llm_context(conversation_id: int, max_tokens: int = None) -> list[dict]:
     """
     Compiles and self-trims the conversation history.
     If the context exceeds max_tokens, it preserves the system summary card at index 0
     but discards the oldest raw messages (index 1) until the payload fits within budget.
     """
+    if max_tokens is None:
+        max_tokens = config_manager.get_max_context_tokens()
     context_messages = []
     
     conn = get_connection()
@@ -2231,6 +2383,7 @@ from queries.memory_queries import (
     create_category_with_embedding,
     get_all_categories
 )
+import utils.config_manager as config_manager
 
 def _get_active_provider():
     """Dynamically resolves the active LLM provider for embeddings."""
@@ -2270,9 +2423,11 @@ def save_semantic_memory(content: str, suggested_category: str) -> None:
         if score > best_score:
             best_score = score
             best_match_category = block["category"]
+        
+        similarity_threshold = config_manager.get_memory_similarity_threshold()
             
-    # If the closest category is highly similar (> 80%), group it there
-    if best_match_category and best_score >= 0.80:
+
+    if best_match_category and best_score >= similarity_threshold:
         target_category = best_match_category
     else:
         # Topic drift: Create a brand new block in the database
@@ -2329,6 +2484,7 @@ import threading
 from database.helper import execute_read
 from queries.summary_queries import create_or_update_summary, get_summary_by_conversation
 from llm.provider_factory import LLMFactory
+import utils.config_manager as config_manager
 
 def trigger_background_summary(api_key: str, model_name: str, conversation_id: int) -> None:
     """
@@ -2359,8 +2515,8 @@ def _run_summary_workflow(api_key: str, model_name: str, conversation_id: int) -
     except Exception:
         return # Safely ignore DB read errors in the background
 
-    # We only trigger a summary if we have accumulated more than 10 new un-summarized messages
-    if len(raw_messages) < 30:
+    trigger_threshold = config_manager.get_summary_trigger_count()
+    if len(raw_messages) < trigger_threshold:
         return
 
     # 3. Compile the text block to feed to the LLM
@@ -4089,6 +4245,7 @@ import logging
 import shlex  # Safe shell escaping from the standard library
 import docker
 from tools.security_guard import check_command_safety
+import utils.config_manager as config_manager       
 
 logger = logging.getLogger("tools.sandbox_executor")
 
@@ -4111,8 +4268,11 @@ class DockerSandboxExecutor:
             self._docker_available = False
         return self._docker_available
 
-    def run_command(self, command: str, timeout_seconds: int = 15) -> str:
+    def run_command(self, command: str, timeout_seconds: int = None) -> str:
         """Executes shell commands inside an isolated Docker container with strict resource limits."""
+        sandbox_config = config_manager.get_sandbox_settings()
+        if timeout_seconds is None:
+            timeout_seconds = sandbox_config.get("timeout_seconds", 15)
         if not self._check_docker():
             return self._run_local_fallback(command, timeout_seconds)
 
@@ -4127,8 +4287,8 @@ class DockerSandboxExecutor:
                 volumes={self.sandbox_root: {"bind": "/workspace", "mode": "rw"}},
                 working_dir="/workspace",
                 network_disabled=True,            # Cuts off internet access within the container
-                mem_limit="512m",                 # Limits memory consumption
-                nano_cpus=1000000000,             # Limits to 1 CPU core
+                mem_limit=sandbox_config.get("mem_limit", "512m"),# Restrict memory usage to 512MB  
+                nano_cpus=sandbox_config.get("nano_cpus", 1000000000), # Limits to 1 CPU core
                 timeout=timeout_seconds,
                 remove=True,                     
                 stdout=True,
@@ -4206,131 +4366,33 @@ def check_command_safety(command: str) -> tuple[bool, str | None]:
 FILE: utils\config_manager.py
 ============================================================
 
-# FILE: utils/config_manager.py
-import os
-import json
-from database.connection import APP_DIR
-
-CONFIG_PATH = os.path.join(APP_DIR, "config.json")
-
-# FILE: utils/config_manager.py
-
-DEFAULT_CONFIG = {
-    "providers": {
-        "gemini": {
-            "api_key": None,
-            "active_model": "gemini-3.1-flash-lite"
-        },
-        "groq": {
-            "api_key": None,
-            "active_model": "llama-3.3-70b-versatile"
-        }
-    },
-    "default_provider": "gemini",
-    "thinking_level": "high",
-}
-
-
-def load_config() -> dict:
-    """Loads the config dictionary, fallback to defaults if file does not exist or is corrupted."""
-    if not os.path.exists(CONFIG_PATH):
-        return DEFAULT_CONFIG
-    
-    try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            user_config = json.load(f)
-            # Ensure basic structure compatibility
-            merged_config = DEFAULT_CONFIG.copy()
-            merged_config.update(user_config)
-            return merged_config
-    except Exception:
-        # If config is corrupted, fall back safely to avoid crashing startup
-        return DEFAULT_CONFIG
-
-def save_config(config: dict) -> None:
-    """Saves the config dictionary locally to ~/.local_workflow_agent/config.json."""
-    try:
-        os.makedirs(APP_DIR, exist_ok=True)
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=4)
-    except Exception as e:
-        print(f"\n[Warning] Failed to save local configuration: {e}")
-
-def get_provider_api_key(provider_name: str) -> str | None:
-    """Gets the API key for a provider, falling back to environment variable if not in config."""
-    config = load_config()
-    provider_name = provider_name.strip().lower()
-    
-    # Check config first
-    key = config.get("providers", {}).get(provider_name, {}).get("api_key")
-    if key:
-        return key
-    
-    # Fallback to system environment variable (maintains backward compatibility)
-    env_var_map = {
-        "gemini": "GEMINI_API_KEY",
-        "groq": "GROQ_API_KEY"
-    }
-    return os.environ.get(env_var_map.get(provider_name, ""))
-
-def set_provider_api_key(provider_name: str, api_key: str | None) -> None:
-    """Saves the API key for a specified provider."""
-    config = load_config()
-    provider_name = provider_name.strip().lower()
-    if "providers" not in config:
-        config["providers"] = {}
-    if provider_name not in config["providers"]:
-        config["providers"][provider_name] = {}
-        
-    config["providers"][provider_name]["api_key"] = api_key
-    save_config(config)
-
-def get_active_model(provider_name: str) -> str:
-    """Gets the active selected model for a provider."""
-    config = load_config()
-    provider_name = provider_name.strip().lower()
-    return config.get("providers", {}).get(provider_name, {}).get("active_model", "gemini-3.1-flash-lite")
-
-def set_active_model(provider_name: str, model_name: str) -> None:
-    """Sets the active selected model for a provider."""
-    config = load_config()
-    provider_name = provider_name.strip().lower()
-    if "providers" not in config:
-        config["providers"] = {}
-    if provider_name not in config["providers"]:
-        config["providers"][provider_name] = {}
-        
-    config["providers"][provider_name]["active_model"] = model_name
-    save_config(config)
-
-def get_default_provider() -> str:
-    """Gets the configured default provider."""
-    config = load_config()
-    return config.get("default_provider", "gemini")
-
-def set_default_provider(provider_name: str) -> None:
-    """Sets the default provider."""
-    config = load_config()
-    config["default_provider"] = provider_name.strip().lower()
-    save_config(config)
-
-def get_thinking_level() -> str:
-    """Gets the globally preferred thinking level (low, medium, high, off)."""
-    config = load_config()
-    return config.get("thinking_level", "high").strip().lower()
-
-def set_thinking_level(level: str) -> None:
-    """Sets the globally preferred thinking level."""
-    config = load_config()
-    config["thinking_level"] = level.strip().lower()
-    save_config(config)
+# utils/config_manager.py
+from utils.config.core import load_config, save_config
+from utils.config.models import (
+    get_default_provider, set_default_provider,
+    get_active_model, set_active_model,
+    get_temperature, set_temperature
+)
+from utils.config.settings import (
+    get_thinking_level, set_thinking_level,
+    get_max_turns, set_max_turns,
+    get_loop_guard, set_loop_guard,             
+    get_sandbox_settings, set_sandbox_settings,
+    get_max_context_tokens, set_max_context_tokens,
+    get_summary_trigger_count, set_summary_trigger_count,
+    get_cli_log_truncation_limit, set_cli_log_truncation_limit,
+    get_memory_similarity_threshold, set_memory_similarity_threshold,
+    get_api_retry_settings, set_api_retry_settings,
+)
+from utils.config.user import (
+    get_user_profile, set_user_profile,
+    get_provider_api_key, set_provider_api_key
+)
 
 def is_provider_configured(provider_name: str) -> bool:
-    """Checks if a provider has a valid key saved or in environment variables."""
     return bool(get_provider_api_key(provider_name))
 
 def has_any_provider_configured() -> bool:
-    """Returns True if at least one provider has configured keys."""
     return is_provider_configured("gemini") or is_provider_configured("groq")
 
 
@@ -4425,4 +4487,282 @@ FILE: utils\__init__.py
 ============================================================
 
 
+
+============================================================
+FILE: utils\config\core.py
+============================================================
+
+# utils/config/core.py
+import os
+import json
+from database.connection import APP_DIR
+
+CONFIG_PATH = os.path.join(APP_DIR, "config.json")
+
+# Non-coder friendly default template
+DEFAULT_CONFIG = {
+    "user_profile": {
+        "name": None,
+        "username": None,
+        "api_keys": {
+            "gemini": None,
+            "groq": None
+        }
+    },
+    "models": {
+        "default_provider": "gemini",
+        "active_models": {
+            "gemini": "gemini-3.1-flash-lite",
+            "groq": "llama-3.3-70b-versatile"
+        },
+        "temperature": 0.2
+    },
+    "settings": {
+        "thinking_level": "high",
+        "max_turns": 15,
+        "max_context_tokens": 100000,
+        "summary_trigger_count": 30,
+        "loop_guard": {
+            "max_failed_attempts": 3,
+            "max_success_attempts": 2
+        },
+        "sandbox": {
+            "memory_limit": "512m",
+            "cpu_limit": 1000000000,
+            "timeout_seconds": 15
+        },
+        "cli": {
+            "log_truncation_limit": 500
+        }
+    }
+}
+
+def load_config() -> dict:
+    if not os.path.exists(CONFIG_PATH):
+        return DEFAULT_CONFIG
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            user_config = json.load(f)
+            # Deep merge to guarantee structure compatibility
+            merged = DEFAULT_CONFIG.copy()
+            for k, v in user_config.items():
+                if isinstance(v, dict) and k in merged:
+                    merged[k].update(v)
+                else:
+                    merged[k] = v
+            return merged
+    except Exception:
+        return DEFAULT_CONFIG
+
+def save_config(config: dict) -> None:
+    try:
+        os.makedirs(APP_DIR, exist_ok=True)
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=4)
+    except Exception as e:
+        print(f"\n[Warning] Failed to save local configuration: {e}")
+
+============================================================
+FILE: utils\config\models.py
+============================================================
+
+# utils/config/models.py
+from utils.config.core import load_config, save_config
+
+def get_default_provider() -> str:
+    config = load_config()
+    return config["models"].get("default_provider", "gemini")
+
+def set_default_provider(provider_name: str) -> None:
+    config = load_config()
+    config["models"]["default_provider"] = provider_name.strip().lower()
+    save_config(config)
+
+def get_active_model(provider_name: str) -> str:
+    config = load_config()
+    models_map = config["models"].get("active_models", {})
+    fallback = "gemini-3.1-flash-lite" if provider_name.lower() == "gemini" else "llama-3.3-70b-versatile"
+    return models_map.get(provider_name.lower(), fallback)
+
+def set_active_model(provider_name: str, model_name: str) -> None:
+    config = load_config()
+    if "active_models" not in config["models"]:
+        config["models"]["active_models"] = {}
+    config["models"]["active_models"][provider_name.lower()] = model_name
+    save_config(config)
+
+def get_temperature() -> float:
+    config = load_config()
+    return float(config["models"].get("temperature", 0.2))
+
+def set_temperature(temp: float) -> None:
+    config = load_config()
+    config["models"]["temperature"] = max(0.0, min(float(temp), 2.0))
+    save_config(config)
+
+============================================================
+FILE: utils\config\settings.py
+============================================================
+
+# utils/config/settings.py
+from utils.config.core import load_config, save_config
+
+def get_thinking_level() -> str:
+    config = load_config()
+    return config["settings"].get("thinking_level", "high").strip().lower()
+
+def set_thinking_level(level: str) -> None:
+    config = load_config()
+    config["settings"]["thinking_level"] = level.strip().lower()
+    save_config(config)
+
+def get_max_turns() -> int:
+    config = load_config()
+    return int(config["settings"].get("max_turns", 15))
+
+def set_max_turns(turns: int) -> None:
+    config = load_config()
+    config["settings"]["max_turns"] = max(1, int(turns))
+    save_config(config)
+
+def get_loop_guard() -> dict:
+    config = load_config()
+    return config["settings"].get("loop_guard", {"max_failed_attempts": 3, "max_success_attempts": 2})
+
+def set_loop_guard(max_failed: int, max_success: int) -> None:
+    config = load_config()
+    config["settings"]["loop_guard"] = {
+        "max_failed_attempts": max(1, int(max_failed)),
+        "max_success_attempts": max(1, int(max_success))
+    }
+    save_config(config)
+
+def get_sandbox_settings() -> dict:
+    """Timeout limits and hardware allocation limits for Docker sandboxing."""
+    config = load_config()
+    return config["settings"].get("sandbox", {"memory_limit": "512m", "cpu_limit": 1000000000, "timeout_seconds": 15})
+
+def set_sandbox_settings(memory_limit: str, cpu_limit: int, timeout_seconds: int) -> None:
+    config = load_config()
+    config["settings"]["sandbox"] = {
+        "memory_limit": str(memory_limit),
+        "cpu_limit": max(100000, int(cpu_limit)),
+        "timeout_seconds": max(1, int(timeout_seconds))
+    }
+    save_config(config)
+
+def get_max_context_tokens() -> int:
+    """Gets the sliding window maximum token threshold for history trimming."""
+    config = load_config()
+    return int(config["settings"].get("max_context_tokens", 100000))
+
+def set_max_context_tokens(tokens: int) -> None:
+    config = load_config()
+    config["settings"]["max_context_tokens"] = max(1000, int(tokens))
+    save_config(config)
+
+def get_summary_trigger_count() -> int:
+    """Trigger background summarization when this many un-summarized messages accumulate."""
+    config = load_config()
+    return int(config["settings"].get("summary_trigger_count", 30))
+
+def set_summary_trigger_count(count: int) -> None:
+    config = load_config()
+    config["settings"]["summary_trigger_count"] = max(1, int(count))
+    save_config(config)
+
+def get_cli_log_truncation_limit() -> int:
+    config = load_config()
+    return int(config.get("cli", {}).get("log_truncation_limit", 500))
+
+def set_cli_log_truncation_limit(limit: int) -> None:
+    config = load_config()
+    if "cli" not in config:
+        config["cli"] = {}
+    config["cli"]["log_truncation_limit"] = max(10, int(limit))
+    save_config(config)
+
+# utils/config/settings.py (Add to bottom)
+
+def get_memory_similarity_threshold() -> float:
+    """Minimum cosine similarity required to group a memory into an existing block."""
+    config = load_config()
+    return float(config["settings"].get("memory_similarity_threshold", 0.80))
+
+def set_memory_similarity_threshold(val: float) -> None:
+    config = load_config()
+    config["settings"]["memory_similarity_threshold"] = max(0.0, min(float(val), 1.0))
+    save_config(config)
+
+def get_api_retry_settings() -> dict:
+    """Attempts and delay parameters for handling network timeouts or rate-limits (429s)."""
+    config = load_config()
+    return config["settings"].get("api_retry", {
+        "max_attempts": 3,
+        "base_delay": 2.0
+    })
+
+def set_api_retry_settings(max_attempts: int, base_delay: float) -> None:
+    config = load_config()
+    config["settings"]["api_retry"] = {
+        "max_attempts": max(1, int(max_attempts)),
+        "base_delay": max(0.1, float(base_delay))
+    }
+    save_config(config)
+
+def get_loop_guard() -> dict:
+    """Gets the loop guard thresholds for catching repeating or failing tool runs."""
+    config = load_config()
+    return config["settings"].get("loop_guard", {
+        "max_failed_attempts": 3,
+        "max_success_attempts": 2
+    })
+
+def set_loop_guard(max_failed: int, max_success: int) -> None:
+    """Saves the loop guard thresholds securely to the configuration file."""
+    config = load_config()
+    config["settings"]["loop_guard"] = {
+        "max_failed_attempts": max(1, int(max_failed)),
+        "max_success_attempts": max(1, int(max_success))
+    }
+    save_config(config)
+
+============================================================
+FILE: utils\config\user.py
+============================================================
+
+# utils/config/user.py
+import os
+from utils.config.core import load_config, save_config
+
+def get_user_profile() -> tuple[str | None, str | None]:
+    """Returns (display_name, username) of the active user."""
+    config = load_config()
+    profile = config.get("user_profile", {})
+    return profile.get("name"), profile.get("username")
+
+def set_user_profile(name: str, username: str) -> None:
+    config = load_config()
+    config["user_profile"]["name"] = name.strip()
+    config["user_profile"]["username"] = username.strip().lower()
+    save_config(config)
+
+def get_provider_api_key(provider_name: str) -> str | None:
+    """Gets the API key, falling back safely to OS environment variables."""
+    config = load_config()
+    provider_name = provider_name.strip().lower()
+    key = config["user_profile"].get("api_keys", {}).get(provider_name)
+    if key:
+        return key
+        
+    env_var_map = {"gemini": "GEMINI_API_KEY", "groq": "GROQ_API_KEY"}
+    return os.environ.get(env_var_map.get(provider_name, ""))
+
+def set_provider_api_key(provider_name: str, api_key: str | None) -> None:
+    config = load_config()
+    provider_name = provider_name.strip().lower()
+    if "api_keys" not in config["user_profile"]:
+        config["user_profile"]["api_keys"] = {}
+    config["user_profile"]["api_keys"][provider_name] = api_key
+    save_config(config)
 

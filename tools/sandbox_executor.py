@@ -3,6 +3,7 @@ import logging
 import shlex  # Safe shell escaping from the standard library
 import docker
 from tools.security_guard import check_command_safety
+import utils.config_manager as config_manager       
 
 logger = logging.getLogger("tools.sandbox_executor")
 
@@ -25,8 +26,11 @@ class DockerSandboxExecutor:
             self._docker_available = False
         return self._docker_available
 
-    def run_command(self, command: str, timeout_seconds: int = 15) -> str:
+    def run_command(self, command: str, timeout_seconds: int = None) -> str:
         """Executes shell commands inside an isolated Docker container with strict resource limits."""
+        sandbox_config = config_manager.get_sandbox_settings()
+        if timeout_seconds is None:
+            timeout_seconds = sandbox_config.get("timeout_seconds", 15)
         if not self._check_docker():
             return self._run_local_fallback(command, timeout_seconds)
 
@@ -41,8 +45,8 @@ class DockerSandboxExecutor:
                 volumes={self.sandbox_root: {"bind": "/workspace", "mode": "rw"}},
                 working_dir="/workspace",
                 network_disabled=True,            # Cuts off internet access within the container
-                mem_limit="512m",                 # Limits memory consumption
-                nano_cpus=1000000000,             # Limits to 1 CPU core
+                mem_limit=sandbox_config.get("mem_limit", "512m"),# Restrict memory usage to 512MB  
+                nano_cpus=sandbox_config.get("nano_cpus", 1000000000), # Limits to 1 CPU core
                 timeout=timeout_seconds,
                 remove=True,                     
                 stdout=True,
