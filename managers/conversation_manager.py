@@ -58,8 +58,9 @@ def compile_llm_context(conversation_id: int, max_tokens: int = None) -> list[di
         max_tokens = config_manager.get_max_context_tokens()
     context_messages = []
     
-    conn = get_connection()
+    conn = None
     try:
+        conn = get_connection()
         # 1. Fetch running summary if it exists
         summary_query = """
         SELECT summary_text, last_summarized_message_id 
@@ -109,7 +110,7 @@ def compile_llm_context(conversation_id: int, max_tokens: int = None) -> list[di
         # Calculate current estimated size
         current_estimated_tokens = _estimate_tokens(context_messages)
         
-        # If we are over budget, trim messages one-by-one
+
         # If we are over budget, trim messages one-by-one
         while current_estimated_tokens > max_tokens and len(context_messages) > 1:
             trim_index = 1 if has_summary else 0
@@ -123,7 +124,7 @@ def compile_llm_context(conversation_id: int, max_tokens: int = None) -> list[di
                 
             removed_msg = context_messages.pop(trim_index)
             
-            # Clean up corresponding tool outputs if we removed an assistant tool call
+
             if removed_msg.get("role") == "assistant" and "tool_calls" in removed_msg:
                 while len(context_messages) > trim_index and context_messages[trim_index].get("role") == "tool":
                     context_messages.pop(trim_index)
@@ -147,7 +148,7 @@ def save_assistant_message(conversation_id: int, content: str) -> dict:
         
     return create_message(conversation_id, role="assistant", content=clean_content)
 
-# (Keep your other imports and functions above)
+
 
 def log_api_usage(
     conversation_id: int, 

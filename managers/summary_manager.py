@@ -1,9 +1,12 @@
-# FILE: managers/summary_manager.py
+
 import threading
 from database.helper import execute_read
 from queries.summary_queries import create_or_update_summary, get_summary_by_conversation
 from llm.provider_factory import LLMFactory
 import utils.config_manager as config_manager
+import logging
+
+logger=logging.getLogger("managers.summary_manager").setLevel(logging.DEBUG)
 
 def trigger_background_summary(api_key: str, model_name: str, conversation_id: int) -> None:
     """
@@ -70,6 +73,6 @@ def _run_summary_workflow(api_key: str, model_name: str, conversation_id: int) -
             latest_msg_id = raw_messages[-1]["id"]
             # Save the new compressed summary to the database
             create_or_update_summary(conversation_id, response.text.strip(), latest_msg_id)
-    except Exception:
-        # Silent pass on API failures so we never disrupt your active terminal session
+    except Exception as e:
+        logger.exception(f"Background summary generation failed for conversation {conversation_id}: {e}")
         pass

@@ -1,4 +1,4 @@
-# utils/config/core.py
+
 import os
 import json
 from database.connection import APP_DIR

@@ -1,4 +1,4 @@
-# FILE: engine/context_formatter.py
+
 
 def format_context(db_messages: list[dict]) -> tuple[str, list[dict]]:
     """

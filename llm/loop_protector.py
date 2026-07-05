@@ -28,12 +28,15 @@ def check_for_infinite_loop(
     # CHANGED: Now only counts BACK-TO-BACK consecutive identical calls.
     total_identical_calls = 0
     failed_identical_calls = 0
+    successful_identical_calls = 0
 
     for call in reversed(tool_call_history):
         if call['name'] == tool_name and call['args_json'] == serialized_args:
             total_identical_calls += 1
             if call.get('status') == 'error':
                 failed_identical_calls += 1
+            elif call.get('status') == 'success':
+                successful_identical_calls += 1
         else:
             break
     limits=config_manager.get_loop_guard() or {}
@@ -44,15 +47,12 @@ def check_for_infinite_loop(
     if max_success is None or max_success <= 0:
         max_success = 2
 
-
-
-
     # Halt if it keeps trying the exact same failed action blindly (back-to-back)
     if failed_identical_calls >= max_failed:
         return True, f"Error: Halting. '{tool_name}' already failed consecutively with these exact params: {tool_args}.", serialized_args
 
     # Halt if it keeps repeating an action that already succeeded (back-to-back) (wasting tokens)
-    if total_identical_calls >= max_success:
+    if successful_identical_calls >= max_success:
         return True, f"Error: Halting. '{tool_name}' already succeeded consecutively with these exact params: {tool_args}.", serialized_args
 
     return False, None, serialized_args

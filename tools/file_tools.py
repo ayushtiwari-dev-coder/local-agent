@@ -1,8 +1,11 @@
-# FILE: tools/file_tools.py
+
 import os
 import json
 import subprocess
-from tools.sandbox_executor import DockerSandboxExecutor    
+from tools.sandbox_executor import DockerSandboxExecutor
+import logging    
+
+logger = logging.getLogger("tools.file_tools")
 
 SANDBOX_ROOT = os.path.abspath(
     os.path.join(os.path.expanduser("~"), ".local_workflow_agent", "workspace")
@@ -24,7 +27,7 @@ def read_files(paths: list[str]) -> dict:
     """
     if not isinstance(paths, list):
         return {"error": "Expected a list of paths."}
-    # everything below this is unchanged — no json.loads needed
+
     unique_paths = []
     for p in paths:
         if p and p not in unique_paths:
@@ -46,6 +49,7 @@ def read_files(paths: list[str]) -> dict:
                     results[path] = f.read()
 
         except Exception as e:
+            logger.exception(f"Failed to read file '{path}': {e}")
             results[path] = f"Error: Failed to read file: {e}"
             
     return results
@@ -84,13 +88,13 @@ def write_files(files: list[dict]) -> dict:
                 f.write(content)
             results[path] = "Success: File written successfully."
         except Exception as e:
+            logger.exception(f"Failed to write file '{path}': {e}")
             results[path] = f"Error: Failed to write file: {e}"
             
     return results
 
 
-_sandbox=DockerSandboxExecutor(SANDBOX_ROOT)
-def run_terminal_command(command: str) -> str:
-    """Executes a shell command safely using the configured sandbox architecture."""
+_sandbox = DockerSandboxExecutor(SANDBOX_ROOT)
+def run_terminal_command(command: str) -> dict:
     # Delegate execution entirely to your secure Sandbox Executor
     return _sandbox.run_command(command)

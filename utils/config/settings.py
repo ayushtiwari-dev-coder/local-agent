@@ -1,4 +1,4 @@
-# utils/config/settings.py
+
 from utils.config.core import load_config, save_config
 
 def get_thinking_level() -> str:
@@ -91,8 +91,6 @@ def set_api_retry_settings(max_attempts: int, base_delay: float) -> None:
         "base_delay": max(0.1, float(base_delay))
     }
     save_config(config)
-
-# utils/config/settings.py
 
 def get_loop_guard() -> dict:
     """Gets the loop guard thresholds for catching repeating or failing tool runs."""

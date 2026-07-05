@@ -14,7 +14,7 @@ def log_tool_execution(
     if status not in {"success", "error"}:
         raise ValueError("Tool execution status must be either 'success' or 'error'.")
 
-    # --- FIX: Convert dictionary/list outputs into clean JSON strings before writing to SQLite ---
+
     if isinstance(output, (dict, list)):
         output_str = json.dumps(output, ensure_ascii=False)
     else:

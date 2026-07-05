@@ -216,7 +216,7 @@ class GroqProvider(BaseLLMProvider):
 
 
 def salvage_groq_failed_generation(failed_text: str):
-    """Intercepts Groq's 400 error, cleans Llama's broken JSON, and mocks a successful response."""
+    """Intercepts Groq's 400 error, cleans Llama's broken JSON, and mocks a successful response. because it gives broken sometimes"""
     # 1. Extract the tool name and the broken arguments
     match = re.search(r'<function=(\w+)>(.*?)</function>', failed_text, re.DOTALL)
     if not match:

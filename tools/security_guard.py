@@ -1,4 +1,4 @@
-# tools/security_guard.py
+
 import re
 
 # Common dangerous or destructive commands/patterns

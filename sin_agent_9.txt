@@ -757,12 +757,22 @@ def advanced_settings_flow() -> None:
         print(f" [3] Modify Background Summary Threshold (Current: {config_manager.get_summary_trigger_count()} messages)")
         print(f" [4] Configure Safe Sandbox Limits (Current: {config_manager.get_sandbox_settings()['memory_limit']} RAM)")
         print(f" [5] Set Local Log Truncation length (Current: {config_manager.get_cli_log_truncation_limit()} chars)")
-        print(f" [6] Set Memory Category Similarity Match (Current: {config_manager.get_memory_similarity_threshold()})") # --- NEW
-        print(f" [7] Configure Network Retry Bounds (Current: {config_manager.get_api_retry_settings()['max_attempts']} tries)") # --- NEW
-        print(" [8] Back to Settings Menu")
-        print(SEPARATOR)
+        print(f" [6] Set Memory Category Similarity Match (Current: {config_manager.get_memory_similarity_threshold()})")
+        print(f" [7] Configure Network Retry Bounds (Current: {config_manager.get_api_retry_settings()['max_attempts']} tries)")
         
-        choice = input(" Select option (1-8): ").strip()
+        # Resolve currently configured loop guard settings
+        lg = config_manager.get_loop_guard()
+        failed_val = lg.get("max_failed_attempts")
+        success_val = lg.get("max_success_attempts")
+        failed_display = failed_val if (failed_val is not None and failed_val > 0) else "Default Fallback (3)"
+        success_display = success_val if (success_val is not None and success_val > 0) else "Default Fallback (2)"
+        
+        print(f" [8] Configure Loop Guard Thresholds (Current: Failed={failed_display}, Success={success_display})")
+        print(" [9] Back to Settings Menu")
+        print(SEPARATOR)
+
+        choice = input(" Select option (1-9): ").strip()
+        
         if choice == "1":
             val = input(" Enter maximum execution steps (e.g. 10 to 30): ").strip()
             if val.isdigit():
@@ -793,8 +803,8 @@ def advanced_settings_flow() -> None:
             timeout = input(f" Enter execution timeout in seconds (e.g. 15, 30, 60) [Current: {sandbox['timeout_seconds']}]: ").strip()
             if timeout.isdigit() and mem:
                 config_manager.set_sandbox_settings(
-                    memory_limit=mem,
-                    cpu_limit=sandbox["cpu_limit"],
+                    memory_limit=mem, 
+                    cpu_limit=sandbox["cpu_limit"], 
                     timeout_seconds=int(timeout)
                 )
                 print(" Sandbox safety bounds updated successfully!")
@@ -828,7 +838,7 @@ def advanced_settings_flow() -> None:
             if attempts.isdigit():
                 try:
                     config_manager.set_api_retry_settings(
-                        max_attempts=int(attempts),
+                        max_attempts=int(attempts), 
                         base_delay=float(delay)
                     )
                     print(" Network API retry bounds successfully updated!")
@@ -838,6 +848,40 @@ def advanced_settings_flow() -> None:
                 print(" Invalid attempts format.")
                 
         elif choice == "8":
+            print("\n--- Loop Guard Threshold Configuration ---")
+            print("Leave blank, enter 0, or type 'none' to reset back to template default limits.")
+            
+            failed_in = input("Enter max consecutive failures allowed: ").strip().lower()
+            success_in = input("Enter max consecutive successes allowed: ").strip().lower()
+            
+            # Process failures: map 0/none/blank to None (representing template fallback)
+            if failed_in in ("", "0", "none", "null"):
+                max_failed = None
+            else:
+                try:
+                    max_failed = int(failed_in)
+                    if max_failed <= 0:
+                        max_failed = None
+                except ValueError:
+                    print("Invalid input for failures. Resorting to Default Fallback.")
+                    max_failed = None
+                    
+            # Process successes: map 0/none/blank to None (representing template fallback)
+            if success_in in ("", "0", "none", "null"):
+                max_success = None
+            else:
+                try:
+                    max_success = int(success_in)
+                    if max_success <= 0:
+                        max_success = None
+                except ValueError:
+                    print("Invalid input for successes. Resorting to Default Fallback.")
+                    max_success = None
+                    
+            config_manager.set_loop_guard(max_failed, max_success)
+            print("\n[Success] Loop Guard thresholds updated successfully!")
+            
+        elif choice == "9":
             break
 
 def run_main_app_loop() -> None:
@@ -1200,7 +1244,7 @@ FILE: database\__init__.py
 FILE: engine\agent_engine.py
 ============================================================
 
-# FILE: engine/test_engine.py
+
 
 import os
 import json
@@ -1214,7 +1258,6 @@ from managers.conversation_manager import (
 )
 from managers.summary_manager import trigger_background_summary
 from llm.provider_factory import LLMFactory
-from utils.config.settings import get_max_turns
 import utils.config_manager as config_manager    
 
 class AgentEngine:
@@ -1252,7 +1295,7 @@ class AgentEngine:
         turn_count = 0
         MAX_TURNS = config_manager.get_max_turns()
 
-        # In engine/agent_engine.py (Inside send_message, inside the while True loop)
+
         while True:
             if turn_count >= MAX_TURNS:
                 error_msg = f"Error: Maximum tool execution limit ({MAX_TURNS} turns) reached."
@@ -1332,38 +1375,62 @@ FILE: engine\handle_permissions.py
 ============================================================
 
 # engine/handle_permissions.py
-
 import json
 from tools.registry import execute_tool
 from managers.conversation_manager import log_tool_run
 
 def _detect_tool_error(tool_name: str, tool_output: any) -> bool:
     """
-    Systematically determines if a tool execution failed by checking structures 
-    and prefixes, preventing false positives from contents containing 'Error:'.
+    Determines if a tool execution failed.
+
+    Priority order:
+    1. If tool_output follows the structured {"status": ..., "output": ...} contract
+       (e.g. run_terminal_command), trust the status field directly — no guessing.
+    2. If tool_output is a dict with an explicit top-level "error" key, treat as failure.
+    3. For read_files/write_files, check per-path values for the "Error:" prefix.
+    4. For flat string outputs, fall back to prefix checking (legacy tools only).
     """
     if isinstance(tool_output, dict):
-        # 1. Check if the tool returned an explicit top-level error payload
+        # 1. Structured status contract: trust it directly.
+        if tool_output.get("status") in ("success", "error"):
+            return tool_output["status"] == "error"
+
+        # 2. Check if the tool returned an explicit top-level error payload
         if "error" in tool_output:
             return True
-            
+
         if tool_name in ["read_files", "write_files"]:
             return any(
-                isinstance(v, str) and v.strip().startswith("Error:") 
+                isinstance(v, str) and v.strip().startswith("Error:")
                 for v in tool_output.values()
             )
-            
-    # 3. For flat string outputs (like run_terminal_command failures), check prefix
+
+    # 4. For flat string outputs (legacy tools like memory_tools), check prefix
     if isinstance(tool_output, str):
         return tool_output.strip().startswith("Error:")
-        
+
     return False
 
+
+def _extract_display_output(tool_output: any) -> any:
+    """
+    Produces a clean, LLM-facing representation of a tool's output.
+
+    Tools using the structured {"status": ..., "output": ...} contract get
+    unwrapped to just their output text, so the model sees readable content
+    instead of a raw Python dict repr. All other output shapes (read_files/
+    write_files dicts, plain strings) pass through unchanged.
+    """
+    if isinstance(tool_output, dict) and set(tool_output.keys()) == {"status", "output"}:
+        return tool_output["output"]
+    return tool_output
+
+
 def determine_and_execute_tool(
-    tool_name: str, 
-    tool_args: dict, 
-    conversation_id: int, 
-    autonomous: bool, 
+    tool_name: str,
+    tool_args: dict,
+    conversation_id: int,
+    autonomous: bool,
     approval_callback=None
 ) -> tuple[str, str]:
     """
@@ -1378,10 +1445,10 @@ def determine_and_execute_tool(
         if not approved:
             tool_output = f"Error: Permission Denied. User refused execution of '{tool_name}'."
             log_tool_run(
-                conversation_id, 
+                conversation_id,
                 tool_name,
-                json.dumps(tool_args), 
-                "error", 
+                json.dumps(tool_args),
+                "error",
                 error_message="User denied permission."
             )
             return tool_output, "error"
@@ -1389,20 +1456,22 @@ def determine_and_execute_tool(
     # 2. Execute the Tool
     tool_output = execute_tool(tool_name, tool_args, conversation_id)
 
-    # 3. Check for Errors in the Output (Using the structured detector helper)
+    # 3. Check for Errors in the Output (structured contract first, then legacy checks)
     has_error = _detect_tool_error(tool_name, tool_output)
     status = "error" if has_error else "success"
 
-    # 4. Log the Execution Details
+    # 4. Log the Execution Details (raw structured output preserved in the DB)
     log_tool_run(
-        conversation_id, 
+        conversation_id,
         tool_name,
-        json.dumps(tool_args), 
-        status, 
+        json.dumps(tool_args),
+        status,
         output=tool_output
     )
 
-    return tool_output, status
+    # 5. Return a clean display value to the caller (agent_engine.py), not the raw dict
+    display_output = _extract_display_output(tool_output)
+    return display_output, status
 
 ============================================================
 FILE: engine\thinking_configure.py
@@ -1507,7 +1576,7 @@ class BaseLLMProvider(ABC):
 FILE: llm\context_formatter.py
 ============================================================
 
-# FILE: engine/context_formatter.py
+
 
 def format_context(db_messages: list[dict]) -> tuple[str, list[dict]]:
     """
@@ -1563,35 +1632,35 @@ def format_context(db_messages: list[dict]) -> tuple[str, list[dict]]:
 FILE: llm\generate_with_retry.py
 ============================================================
 
-# FILE: engine/generate_with_retry.py
+# FILE: llm/generate_with_retry.py
 import time
 import utils.config_manager as config_manager
 
 def generate_with_retry(
-    request_fn, 
-    is_quota_error_fn, 
-    status_callback=None, 
+    request_fn,
+    is_quota_error_fn,
+    status_callback=None,
     max_attempts: int = None,
     base_delay: float = None
 ) -> any:
     """
-    Generic template to safely handle content generation and API requests for any LLM provider.
-    Handles rate-limits (429s), transient exceptions, empty responses, and exponential backoff
+    Generic template to safely handle content generation and API requests for any LLM
+    provider. Handles rate-limits (429s), transient exceptions, empty responses, and exponential backoff
     while updating the system console via status callbacks.
     """
     retry_settings = config_manager.get_api_retry_settings()
     if max_attempts is None:
         max_attempts = retry_settings.get("max_attempts", 3)
     if base_delay is None:
-            base_delay = retry_settings.get("base_delay", 2.0)
+        base_delay = retry_settings.get("base_delay", 2.0)
+
     for attempt in range(max_attempts):
         try:
             # 1. Execute the actual provider request
             response = request_fn()
-            
             if response:
                 return response
-                
+
             # Handle empty responses
             if attempt < max_attempts - 1:
                 delay = base_delay * (2 ** attempt)
@@ -1601,11 +1670,11 @@ def generate_with_retry(
                         f"Retrying execution loop in {delay:.1f} seconds (Attempt {attempt + 1}/{max_attempts})..."
                     )
                 time.sleep(delay)
-                
+
         except Exception as e:
             # 2. Check if the error is a 429 rate limit
             is_quota_error = is_quota_error_fn(e)
-            
+
             if is_quota_error:
                 quota_delay = base_delay * 3.0
                 if status_callback:
@@ -1614,21 +1683,30 @@ def generate_with_retry(
                         f"Waiting {quota_delay:.1f} seconds before initiating recovery retry..."
                     )
                 time.sleep(quota_delay)
-                
+
                 # Attempt generation exactly once more
                 try:
-                    response = request_response = f_run_attempt = request_fn()
+                    response = request_fn()
                     if response:
                         return response
-                    else:
-                        raise RuntimeError("Daily quota limit has been reached. Stopping the request at this moment.")
+                    raise RuntimeError("Daily quota limit has been reached. Stopping the request at this moment.")
                 except Exception as retry_err:
-                    raise RuntimeError("Daily quota limit has been reached. Stopping the request at this moment.") from retry_err
-            
+                    # Only report "quota exhausted" if the retry actually failed for
+                    # a quota-related reason. Anything else (network blip, transient
+                    # server error, etc.) gets its own accurate message instead of
+                    # being mislabeled as a quota failure.
+                    if is_quota_error_fn(retry_err):
+                        raise RuntimeError(
+                            "Daily quota limit has been reached. Stopping the request at this moment."
+                        ) from retry_err
+                    raise RuntimeError(
+                        f"Request failed after quota-error retry: {retry_err}"
+                    ) from retry_err
+
             # For other transient exceptions, check if we have reached the limit
             if attempt == max_attempts - 1:
                 raise e
-                
+
             delay = base_delay * (2 ** attempt)
             exc_str = str(e)
             if status_callback:
@@ -1637,8 +1715,9 @@ def generate_with_retry(
                     f"Retrying execution loop in {delay:.1f} seconds (Attempt {attempt + 1}/{max_attempts})...."
                 )
             time.sleep(delay)
-            
+
     raise RuntimeError("No response returned after multiple retries.")
+
 
 def is_quota_error(e: Exception) -> bool:
     """
@@ -1647,7 +1726,7 @@ def is_quota_error(e: Exception) -> bool:
     """
     exc_str = str(e).lower()
     exc_class = type(e).__name__.lower()
-    
+
     # Common signature flags used across major provider packages
     quota_signals = ["resourceexhausted", "429", "quota", "ratelimit", "limit exceeded"]
     return any(signal in exc_str or signal in exc_class for signal in quota_signals)
@@ -1694,9 +1773,13 @@ def check_for_infinite_loop(
                 failed_identical_calls += 1
         else:
             break
-    limits=config_manager.get_loop_guard() 
-    max_failed = limits.get("max_failed_attempts", 3)
-    max_success = limits.get("max_success_attempts", 2)
+    limits=config_manager.get_loop_guard() or {}
+    max_failed = limits.get("max_failed_attempts")
+    if max_failed is None or max_failed <= 0:
+        max_failed = 3
+    max_success = limits.get("max_success_attempts")
+    if max_success is None or max_success <= 0:
+        max_success = 2
 
 
 
@@ -2122,7 +2205,7 @@ class GroqProvider(BaseLLMProvider):
 
 
 def salvage_groq_failed_generation(failed_text: str):
-    """Intercepts Groq's 400 error, cleans Llama's broken JSON, and mocks a successful response."""
+    """Intercepts Groq's 400 error, cleans Llama's broken JSON, and mocks a successful response. because it gives broken sometimes"""
     # 1. Extract the tool name and the broken arguments
     match = re.search(r'<function=(\w+)>(.*?)</function>', failed_text, re.DOTALL)
     if not match:
@@ -2246,8 +2329,9 @@ def compile_llm_context(conversation_id: int, max_tokens: int = None) -> list[di
         max_tokens = config_manager.get_max_context_tokens()
     context_messages = []
     
-    conn = get_connection()
+    conn = None
     try:
+        conn = get_connection()
         # 1. Fetch running summary if it exists
         summary_query = """
         SELECT summary_text, last_summarized_message_id 
@@ -2297,7 +2381,7 @@ def compile_llm_context(conversation_id: int, max_tokens: int = None) -> list[di
         # Calculate current estimated size
         current_estimated_tokens = _estimate_tokens(context_messages)
         
-        # If we are over budget, trim messages one-by-one
+
         # If we are over budget, trim messages one-by-one
         while current_estimated_tokens > max_tokens and len(context_messages) > 1:
             trim_index = 1 if has_summary else 0
@@ -2311,7 +2395,7 @@ def compile_llm_context(conversation_id: int, max_tokens: int = None) -> list[di
                 
             removed_msg = context_messages.pop(trim_index)
             
-            # Clean up corresponding tool outputs if we removed an assistant tool call
+
             if removed_msg.get("role") == "assistant" and "tool_calls" in removed_msg:
                 while len(context_messages) > trim_index and context_messages[trim_index].get("role") == "tool":
                     context_messages.pop(trim_index)
@@ -2335,7 +2419,7 @@ def save_assistant_message(conversation_id: int, content: str) -> dict:
         
     return create_message(conversation_id, role="assistant", content=clean_content)
 
-# (Keep your other imports and functions above)
+
 
 def log_api_usage(
     conversation_id: int, 
@@ -2479,12 +2563,15 @@ def retrieve_semantic_memory(query_text: str, category: str, limit: int = 3) -> 
 FILE: managers\summary_manager.py
 ============================================================
 
-# FILE: managers/summary_manager.py
+
 import threading
 from database.helper import execute_read
 from queries.summary_queries import create_or_update_summary, get_summary_by_conversation
 from llm.provider_factory import LLMFactory
 import utils.config_manager as config_manager
+import logging
+
+logger=logging.getLogger("managers.summary_manager").setLevel(logging.DEBUG)
 
 def trigger_background_summary(api_key: str, model_name: str, conversation_id: int) -> None:
     """
@@ -2551,8 +2638,8 @@ def _run_summary_workflow(api_key: str, model_name: str, conversation_id: int) -
             latest_msg_id = raw_messages[-1]["id"]
             # Save the new compressed summary to the database
             create_or_update_summary(conversation_id, response.text.strip(), latest_msg_id)
-    except Exception:
-        # Silent pass on API failures so we never disrupt your active terminal session
+    except Exception as e:
+        logger.exception(f"Background summary generation failed for conversation {conversation_id}: {e}")
         pass
 
 ============================================================
@@ -2681,14 +2768,6 @@ FILE: queries\memory_queries.py
 import sqlite3
 from database.helper import execute_read, execute_write
 
-def create_memory(content: str, category: str = "general") -> dict:
-    """
-    Saves a new long-term memory fact or preference.
-    """
-    query = "INSERT INTO memories (content, category) VALUES (?, ?);"
-    memory_id = execute_write(query, (content, category))
-    return get_memory_by_id(memory_id)
-
 
 def get_memory_by_id(memory_id: int) -> dict:
     """
@@ -2700,7 +2779,6 @@ def get_memory_by_id(memory_id: int) -> dict:
         raise ValueError(f"Memory with ID {memory_id} not found.")
     return memory
 
-
 def search_memories(search_term: str) -> list[dict]:
     """
     Keyword searches content and categories using wildcards.
@@ -2709,23 +2787,6 @@ def search_memories(search_term: str) -> list[dict]:
     wildcard_term = f"%{search_term}%"
     return execute_read(query, (wildcard_term, wildcard_term))
 
-
-def get_all_memories() -> list[dict]:
-    """
-    Retrieves all stored memories.
-    """
-    query = "SELECT id, content, category, created_at FROM memories ORDER BY created_at DESC;"
-    return execute_read(query)
-
-
-def delete_memory(memory_id: int) -> None:
-    """
-    Deletes a specific memory record.
-    """
-    query = "DELETE FROM memories WHERE id = ?;"
-    rows_affected = execute_write(query, (memory_id,))
-    if rows_affected == 0:
-        raise ValueError(f"Memory with ID {memory_id} not found.")
     
 def create_category_with_embedding(category: str, embedding_str: str) -> None:
     """Saves a new category/block centroid vector."""
@@ -2885,7 +2946,7 @@ def log_tool_execution(
     if status not in {"success", "error"}:
         raise ValueError("Tool execution status must be either 'success' or 'error'.")
 
-    # --- FIX: Convert dictionary/list outputs into clean JSON strings before writing to SQLite ---
+
     if isinstance(output, (dict, list)):
         output_str = json.dumps(output, ensure_ascii=False)
     else:
@@ -2967,7 +3028,6 @@ FILE: tests\test_config_manager.py
 ============================================================
 
 # tests/test_config_manager.py
-
 import unittest
 import tempfile
 import os
@@ -2977,18 +3037,18 @@ from unittest.mock import patch
 import utils.config_manager as cm
 
 class TestConfigManager(unittest.TestCase):
-    """Verifies config loading defaults, local file writing, and environment variables fallbacks."""
+    """Verifies config loading defaults, local file writing, environment variables, and edge cases."""
 
     def setUp(self):
         # Sandbox CONFIG_PATH using a temporary JSON file to protect the user's home config
         self.temp_config = tempfile.NamedTemporaryFile(delete=False)
         self.temp_config_path = self.temp_config.name
         self.temp_config.close()
-        
+
         # Patch the module-level configuration path constant
         self.path_patcher = patch("utils.config_manager.CONFIG_PATH", self.temp_config_path)
         self.path_patcher.start()
-        
+
     def tearDown(self):
         self.path_patcher.stop()
         try:
@@ -3000,9 +3060,10 @@ class TestConfigManager(unittest.TestCase):
         # If config file is missing, verify it safely returns standard default dictionary
         if os.path.exists(self.temp_config_path):
             os.remove(self.temp_config_path)
+        
         config = cm.load_config()
-        self.assertEqual(config["default_provider"], "gemini")
-        self.assertEqual(config["thinking_level"], "high")
+        self.assertEqual(config["models"]["default_provider"], "gemini")
+        self.assertEqual(config["settings"]["thinking_level"], "high")
 
     def test_set_and_get_provider_api_key_interaction(self):
         # Store key inside the mock json config
@@ -3020,6 +3081,27 @@ class TestConfigManager(unittest.TestCase):
         # Retrieval should fall back to mapped system environment variables
         key = cm.get_provider_api_key("groq")
         self.assertEqual(key, "fallback-groq-key")
+
+    def test_loop_guard_edge_cases(self):
+        """Verifies that invalid loop guard inputs gracefully fall back to None in the schema."""
+        # 1. Test Valid Inputs (Standard Usage)
+        cm.set_loop_guard(max_failed=5, max_success=10)
+        lg = cm.get_loop_guard()
+        self.assertEqual(lg["max_failed_attempts"], 5)
+        self.assertEqual(lg["max_success_attempts"], 10)
+
+        # 2. Test Zero and None (Clearing the configuration)
+        cm.set_loop_guard(max_failed=0, max_success=None)
+        lg_reset = cm.get_loop_guard()
+        self.assertIsNone(lg_reset["max_failed_attempts"])
+        self.assertIsNone(lg_reset["max_success_attempts"])
+
+        # 3. Test Negative Values (Malicious / Accidental Inputs)
+        cm.set_loop_guard(max_failed=-5, max_success=-1)
+        lg_negative = cm.get_loop_guard()
+        self.assertIsNone(lg_negative["max_failed_attempts"])
+        self.assertIsNone(lg_negative["max_success_attempts"])
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -3649,6 +3731,8 @@ FILE: tests\test_loop_protector.py
 # tests/test_loop_protector.py
 import unittest
 import json
+
+from requests import patch
 from llm.loop_protector import check_for_infinite_loop
 
 class TestLoopProtector(unittest.TestCase):
@@ -3723,7 +3807,41 @@ class TestLoopProtector(unittest.TestCase):
         
         self.assertFalse(is_looping)
         self.assertIsNone(loop_error)
+    @patch('utils.config_manager.get_loop_guard')
+    def test_loop_guard_dynamic_fallback(self, mock_get_loop_guard):
+        """
+        Ensures that if the user configured None, 0, or corrupted data in their config,
+        the loop protector automatically falls back to raw defaults (3 failures, 2 successes).
+        """
+        # Mock the config returning explicit Nones/Zeroes
+        mock_get_loop_guard.return_value = {
+            "max_failed_attempts": None,
+            "max_success_attempts": 0
+        }
 
+        # --- Test Fallback for Failures (Default should be 3) ---
+        # 2 failures: Should NOT loop yet
+        history_2_fails = [{'name': self.tool_name, 'args_json': self.serialized_args, 'status': 'error'}] * 2
+        is_looping, loop_error, _ = check_for_infinite_loop(history_2_fails, self.tool_name, self.tool_args)
+        self.assertFalse(is_looping)
+
+        # 3 failures: MUST trigger the fallback loop guard
+        history_3_fails = [{'name': self.tool_name, 'args_json': self.serialized_args, 'status': 'error'}] * 3
+        is_looping, loop_error, _ = check_for_infinite_loop(history_3_fails, self.tool_name, self.tool_args)
+        self.assertTrue(is_looping)
+        self.assertIn("already failed consecutively", loop_error)
+
+        # --- Test Fallback for Successes (Default should be 2) ---
+        # 1 success: Should NOT loop yet
+        history_1_success = [{'name': self.tool_name, 'args_json': self.serialized_args, 'status': 'success'}]
+        is_looping, loop_error, _ = check_for_infinite_loop(history_1_success, self.tool_name, self.tool_args)
+        self.assertFalse(is_looping)
+
+        # 2 successes: MUST trigger the fallback loop guard
+        history_2_successes = [{'name': self.tool_name, 'args_json': self.serialized_args, 'status': 'success'}] * 2
+        is_looping, loop_error, _ = check_for_infinite_loop(history_2_successes, self.tool_name, self.tool_args)
+        self.assertTrue(is_looping)
+        self.assertIn("already succeeded consecutively", loop_error)
 if __name__ == "__main__":
     unittest.main()
 
@@ -4063,11 +4181,14 @@ FILE: tests\__init__.py
 FILE: tools\file_tools.py
 ============================================================
 
-# FILE: tools/file_tools.py
+
 import os
 import json
 import subprocess
-from tools.sandbox_executor import DockerSandboxExecutor    
+from tools.sandbox_executor import DockerSandboxExecutor
+import logging    
+
+logger = logging.getLogger("tools.file_tools")
 
 SANDBOX_ROOT = os.path.abspath(
     os.path.join(os.path.expanduser("~"), ".local_workflow_agent", "workspace")
@@ -4089,7 +4210,7 @@ def read_files(paths: list[str]) -> dict:
     """
     if not isinstance(paths, list):
         return {"error": "Expected a list of paths."}
-    # everything below this is unchanged — no json.loads needed
+
     unique_paths = []
     for p in paths:
         if p and p not in unique_paths:
@@ -4111,6 +4232,7 @@ def read_files(paths: list[str]) -> dict:
                     results[path] = f.read()
 
         except Exception as e:
+            logger.exception(f"Failed to read file '{path}': {e}")
             results[path] = f"Error: Failed to read file: {e}"
             
     return results
@@ -4149,14 +4271,14 @@ def write_files(files: list[dict]) -> dict:
                 f.write(content)
             results[path] = "Success: File written successfully."
         except Exception as e:
+            logger.exception(f"Failed to write file '{path}': {e}")
             results[path] = f"Error: Failed to write file: {e}"
             
     return results
 
 
-_sandbox=DockerSandboxExecutor(SANDBOX_ROOT)
-def run_terminal_command(command: str) -> str:
-    """Executes a shell command safely using the configured sandbox architecture."""
+_sandbox = DockerSandboxExecutor(SANDBOX_ROOT)
+def run_terminal_command(command: str) -> dict:
     # Delegate execution entirely to your secure Sandbox Executor
     return _sandbox.run_command(command)
 
@@ -4268,8 +4390,16 @@ class DockerSandboxExecutor:
             self._docker_available = False
         return self._docker_available
 
-    def run_command(self, command: str, timeout_seconds: int = None) -> str:
-        """Executes shell commands inside an isolated Docker container with strict resource limits."""
+    def run_command(self, command: str, timeout_seconds: int = None) -> dict:
+        """
+        Executes shell commands inside an isolated Docker container with strict resource
+        limits, falling back to local subprocess execution if Docker is unavailable.
+
+        Returns a structured result instead of a bare string:
+            {"status": "success" | "error", "output": str}
+        Success/failure is determined from the actual exit code of the process
+        (or the Docker container error), never by inspecting the text of the output.
+        """
         sandbox_config = config_manager.get_sandbox_settings()
         if timeout_seconds is None:
             timeout_seconds = sandbox_config.get("timeout_seconds", 15)
@@ -4280,58 +4410,75 @@ class DockerSandboxExecutor:
             client = docker.from_env()
             # Quote and isolate execution strings safely using shlex
             execution_cmd = f"sh -c {shlex.quote(command)}"
-            
+
             container = client.containers.run(
                 image="python:3.11-slim",
                 command=execution_cmd,
                 volumes={self.sandbox_root: {"bind": "/workspace", "mode": "rw"}},
                 working_dir="/workspace",
-                network_disabled=True,            # Cuts off internet access within the container
-                mem_limit=sandbox_config.get("mem_limit", "512m"),# Restrict memory usage to 512MB  
-                nano_cpus=sandbox_config.get("nano_cpus", 1000000000), # Limits to 1 CPU core
+                network_disabled=True,          # Cuts off internet access within the container
+                mem_limit=sandbox_config.get("mem_limit", "512m"),      # Restrict memory usage
+                nano_cpus=sandbox_config.get("nano_cpus", 1000000000),  # Limits to 1 CPU core
                 timeout=timeout_seconds,
-                remove=True,                     
+                remove=True,
                 stdout=True,
                 stderr=True
             )
-            return container.decode("utf-8").strip() or "[Command executed with no output]"
+            output_text = container.decode("utf-8").strip() or "[Command executed with no output]"
+            return {"status": "success", "output": output_text}
         except docker.errors.ContainerError as e:
-            return f"Error: Process failed with exit code {e.exit_status}. Output: {e.stderr.decode('utf-8').strip()}"
+            error_text = f"Error: Process failed with exit code {e.exit_status}. Output: {e.stderr.decode('utf-8').strip()}"
+            return {"status": "error", "output": error_text}
         except Exception as e:
-            return f"Sandbox execution failure: {str(e)}"
+            return {"status": "error", "output": f"Sandbox execution failure: {str(e)}"}
 
+    def _run_local_fallback(self, command: str, timeout_seconds: int) -> dict:
+        """
+        Subprocess execution boundary fallback if Docker is offline.
 
-    def _run_local_fallback(self, command: str, timeout_seconds: int) -> str:
-        """Subprocess execution boundary fallback if Docker is offline."""
+        Returns a structured result: {"status": "success" | "error", "output": str}.
+        Status is set from the process's real returncode, not from string content.
+        """
         import subprocess
-        
+
         is_safe, warning_reason = check_command_safety(command)
         if not is_safe:
-
             if not self.fallback_approval_callback:
-                return f"Error: Execution blocked. Destructive command flagged: {warning_reason}."
-            
+                return {
+                    "status": "error",
+                    "output": f"Error: Execution blocked. Destructive command flagged: {warning_reason}."
+                }
+
             # Delegate validation directly to the presentation callback
             approved = self.fallback_approval_callback(command, warning_reason)
             if not approved:
-                return f"Error: Execution blocked by user. Reason: Failed safety check ({warning_reason})."
-                
+                return {
+                    "status": "error",
+                    "output": f"Error: Execution blocked by user. Reason: Failed safety check ({warning_reason})."
+                }
+
         try:
             result = subprocess.run(
-                command, shell=True, cwd=self.sandbox_root, capture_output=True, text=True, timeout=timeout_seconds
+                command, shell=True, cwd=self.sandbox_root, capture_output=True,
+                text=True, timeout=timeout_seconds
             )
             output = "\n".join(filter(None, [result.stdout, result.stderr])).strip()
-            return output or "[Command executed with no output]"
+            output = output or "[Command executed with no output]"
+            status = "success" if result.returncode == 0 else "error"
+            return {"status": status, "output": output}
         except subprocess.TimeoutExpired:
-            return f"Error: Command execution timed out (exceeded {timeout_seconds} seconds)."
+            return {
+                "status": "error",
+                "output": f"Error: Command execution timed out (exceeded {timeout_seconds} seconds)."
+            }
         except Exception as e:
-            return f"Error executing native command: {e}"
+            return {"status": "error", "output": f"Error executing native command: {e}"}
 
 ============================================================
 FILE: tools\security_guard.py
 ============================================================
 
-# tools/security_guard.py
+
 import re
 
 # Common dangerous or destructive commands/patterns
@@ -4366,7 +4513,7 @@ def check_command_safety(command: str) -> tuple[bool, str | None]:
 FILE: utils\config_manager.py
 ============================================================
 
-# utils/config_manager.py
+
 from utils.config.core import load_config, save_config
 from utils.config.models import (
     get_default_provider, set_default_provider,
@@ -4492,7 +4639,7 @@ FILE: utils\__init__.py
 FILE: utils\config\core.py
 ============================================================
 
-# utils/config/core.py
+
 import os
 import json
 from database.connection import APP_DIR
@@ -4566,7 +4713,7 @@ def save_config(config: dict) -> None:
 FILE: utils\config\models.py
 ============================================================
 
-# utils/config/models.py
+
 from utils.config.core import load_config, save_config
 
 def get_default_provider() -> str:
@@ -4604,7 +4751,7 @@ def set_temperature(temp: float) -> None:
 FILE: utils\config\settings.py
 ============================================================
 
-# utils/config/settings.py
+
 from utils.config.core import load_config, save_config
 
 def get_thinking_level() -> str:
@@ -4623,18 +4770,6 @@ def get_max_turns() -> int:
 def set_max_turns(turns: int) -> None:
     config = load_config()
     config["settings"]["max_turns"] = max(1, int(turns))
-    save_config(config)
-
-def get_loop_guard() -> dict:
-    config = load_config()
-    return config["settings"].get("loop_guard", {"max_failed_attempts": 3, "max_success_attempts": 2})
-
-def set_loop_guard(max_failed: int, max_success: int) -> None:
-    config = load_config()
-    config["settings"]["loop_guard"] = {
-        "max_failed_attempts": max(1, int(max_failed)),
-        "max_success_attempts": max(1, int(max_success))
-    }
     save_config(config)
 
 def get_sandbox_settings() -> dict:
@@ -4714,16 +4849,18 @@ def get_loop_guard() -> dict:
     """Gets the loop guard thresholds for catching repeating or failing tool runs."""
     config = load_config()
     return config["settings"].get("loop_guard", {
-        "max_failed_attempts": 3,
+        "max_failed_attempts": 3, 
         "max_success_attempts": 2
     })
 
-def set_loop_guard(max_failed: int, max_success: int) -> None:
+def set_loop_guard(max_failed: int | None, max_success: int | None) -> None:
     """Saves the loop guard thresholds securely to the configuration file."""
     config = load_config()
+    
+    # Store positive integers, or None to trigger the fallback logic
     config["settings"]["loop_guard"] = {
-        "max_failed_attempts": max(1, int(max_failed)),
-        "max_success_attempts": max(1, int(max_success))
+        "max_failed_attempts": int(max_failed) if (max_failed is not None and int(max_failed) > 0) else None,
+        "max_success_attempts": int(max_success) if (max_success is not None and int(max_success) > 0) else None
     }
     save_config(config)
 
@@ -4731,7 +4868,7 @@ def set_loop_guard(max_failed: int, max_success: int) -> None:
 FILE: utils\config\user.py
 ============================================================
 
-# utils/config/user.py
+
 import os
 from utils.config.core import load_config, save_config
 

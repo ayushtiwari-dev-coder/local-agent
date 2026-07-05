@@ -1,3 +1,4 @@
+# tests/test_sandbox_executor.py
 import os
 import unittest
 from unittest.mock import patch, MagicMock
@@ -30,13 +31,20 @@ class TestSandboxExecutor(unittest.TestCase):
 
     @patch("tools.sandbox_executor.docker.from_env")
     def test_run_command_via_docker_success(self, mock_from_env):
-        """Verify the complete parameters of a successful sandboxed run call."""
+        """Verify the complete parameters and the structured dictionary output of a successful sandboxed run call."""
         mock_client = MagicMock()
         mock_client.containers.run.return_value = b"sample command output"
         mock_from_env.return_value = mock_client
         self.executor._docker_available = True
+        
         result = self.executor.run_command("echo test")
-        self.assertEqual(result, "sample command output")
+        
+        # Verify the new structured return type contract
+        self.assertEqual(result, {
+            "status": "success",
+            "output": "sample command output"
+        })
+        
         mock_client.containers.run.assert_called_once_with(
             image="python:3.11-slim",
             command="sh -c 'echo test'",
@@ -53,7 +61,7 @@ class TestSandboxExecutor(unittest.TestCase):
 
     @patch("tools.sandbox_executor.docker.from_env")
     def test_run_command_container_exit_error(self, mock_from_env):
-        """Verify handling and parsing of exit code errors from container subprocesses."""
+        """Verify handling, parsing, and dictionary status of exit code errors from container subprocesses."""
         mock_client = MagicMock()
         container_error = docker.errors.ContainerError(
             container=None,
@@ -65,20 +73,31 @@ class TestSandboxExecutor(unittest.TestCase):
         mock_client.containers.run.side_effect = container_error
         mock_from_env.return_value = mock_client
         self.executor._docker_available = True
+        
         result = self.executor.run_command("invalid_cmd")
-        self.assertIn("Error: Process failed with exit code 127", result)
-        self.assertIn("Command not found", result)
+        
+        # Verify status flag and nested output contents
+        self.assertEqual(result["status"], "error")
+        self.assertIn("Error: Process failed with exit code 127", result["output"])
+        self.assertIn("Command not found", result["output"])
 
     @patch("subprocess.run")
     def test_run_command_local_subprocess_fallback(self, mock_subprocess_run):
-        """Verify fallback to safe local subprocess execution if Docker is offline."""
+        """Verify fallback to safe local subprocess execution and structured dictionary return if Docker is offline."""
         self.executor._docker_available = False
         mock_response = MagicMock()
         mock_response.stdout = "local subprocess output"
         mock_response.stderr = ""
+        mock_response.returncode = 0
         mock_subprocess_run.return_value = mock_response
+        
         result = self.executor.run_command("echo local")
-        self.assertEqual(result, "local subprocess output")
+        
+        # Verify structural dictionary matches fallback expectations
+        self.assertEqual(result, {
+            "status": "success",
+            "output": "local subprocess output"
+        })
         mock_subprocess_run.assert_called_once_with(
             "echo local",
             shell=True,
@@ -99,18 +118,20 @@ class TestSandboxExecutor(unittest.TestCase):
         def test_callback(cmd, reason):
             choice = input(f"Unsafe command: {cmd}. Reason: {reason}. Allow? (y/n): ")
             return choice.strip().lower() == "y"
+            
         self.executor.fallback_approval_callback = test_callback
 
         # Mock subprocess execution result
         mock_response = MagicMock()
         mock_response.stdout = "Deletion executed successfully."
         mock_response.stderr = ""
+        mock_response.returncode = 0
         mock_subprocess_run.return_value = mock_response
 
         destructive_cmd = "rm -rf /tmp/test_workspace_sandbox_dummy"
         result = self.executor._run_local_fallback(destructive_cmd, timeout_seconds=15)
 
-        # Verify user was prompted and subprocess was called
+        # Verify user was prompted and subprocess was executed
         mock_input.assert_called_once()
         mock_subprocess_run.assert_called_once_with(
             destructive_cmd,
@@ -120,29 +141,36 @@ class TestSandboxExecutor(unittest.TestCase):
             text=True,
             timeout=15
         )
-        self.assertEqual(result, "Deletion executed successfully.")
+        self.assertEqual(result, {
+            "status": "success",
+            "output": "Deletion executed successfully."
+        })
 
     @patch("subprocess.run")
     @patch("builtins.input", return_value="n")
     def test_run_local_fallback_destructive_command_blocked(self, mock_input, mock_subprocess_run):
         """
         Scenario 2: A dangerous command is parsed, user responds with 'n' (block).
-        The execution should immediately exit, returning a blocked warning string.
+        The execution should immediately exit, returning a blocked warning dictionary.
         """
         # Assign a fallback callback that calls builtins.input so the test executes as intended
         def test_callback(cmd, reason):
             choice = input(f"Unsafe command: {cmd}. Reason: {reason}. Allow? (y/n): ")
             return choice.strip().lower() == "y"
+            
         self.executor.fallback_approval_callback = test_callback
 
         destructive_cmd = "rm -rf /etc/hosts"
         result = self.executor._run_local_fallback(destructive_cmd, timeout_seconds=15)
 
-        # Verify user was prompted and subprocess was never run
+        # Verify user was prompted and subprocess was NEVER executed
         mock_input.assert_called_once()
         mock_subprocess_run.assert_not_called()
-        self.assertIn("blocked by user", result)
-        self.assertIn("safety check", result)
+        
+        # Verify structural dictionary block flag
+        self.assertEqual(result["status"], "error")
+        self.assertIn("blocked by user", result["output"])
+        self.assertIn("safety check", result["output"])
 
     @patch("subprocess.run")
     @patch("builtins.input")
@@ -151,6 +179,7 @@ class TestSandboxExecutor(unittest.TestCase):
         mock_response = MagicMock()
         mock_response.stdout = "Hello World"
         mock_response.stderr = ""
+        mock_response.returncode = 0
         mock_subprocess_run.return_value = mock_response
 
         safe_cmd = "echo 'hello world'"
@@ -159,7 +188,11 @@ class TestSandboxExecutor(unittest.TestCase):
         # Verify user was never prompted
         mock_input.assert_not_called()
         mock_subprocess_run.assert_called_once()
-        self.assertEqual(result, "Hello World")
+        
+        self.assertEqual(result, {
+            "status": "success",
+            "output": "Hello World"
+        })
 
 if __name__ == "__main__":
     unittest.main()
