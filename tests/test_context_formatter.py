@@ -1,12 +1,13 @@
-# tests/test_context_formatter.py
-
+# FILE: tests/test_context_formatter.py
 import unittest
+from unittest.mock import patch
 from llm.context_formatter import format_context
 
 class TestContextFormatter(unittest.TestCase):
     """Verifies system summaries are mapped to system prompts and messages are formatted correctly."""
 
-    def test_format_context_standard_message_flow(self):
+    @patch('llm.context_formatter.config_manager.get_system_instruction', return_value=None)
+    def test_format_context_standard_message_flow(self, mock_get_inst):
         # Standard user-assistant-tool alternation
         raw_db_messages = [
             {"role": "user", "content": "Verify directories."},
@@ -15,7 +16,7 @@ class TestContextFormatter(unittest.TestCase):
         
         system_instruction, standardized_messages = format_context(raw_db_messages)
         
-        # Verify base system prompt is loaded
+        # Verify base system prompt is loaded from DEFAULT fallback
         self.assertIn("You are a highly efficient", system_instruction)
         
         # Verify standardized messages structure
@@ -24,7 +25,17 @@ class TestContextFormatter(unittest.TestCase):
         self.assertEqual(standardized_messages[1]["role"], "assistant")
         self.assertIn("tool_calls", standardized_messages[1])
 
-    def test_format_context_extracts_previous_summaries(self):
+    @patch('llm.context_formatter.config_manager.get_system_instruction', return_value="CUSTOM INSTRUCTION ACTIVE.")
+    def test_format_context_custom_instruction(self, mock_get_inst):
+        # Ensures that a custom configuration completely overrides the default
+        raw_db_messages = [{"role": "user", "content": "Hi"}]
+        system_instruction, _ = format_context(raw_db_messages)
+        
+        self.assertIn("CUSTOM INSTRUCTION ACTIVE.", system_instruction)
+        self.assertNotIn("You are a highly efficient", system_instruction)
+
+    @patch('llm.context_formatter.config_manager.get_system_instruction', return_value=None)
+    def test_format_context_extracts_previous_summaries(self, mock_get_inst):
         # If a system role message containing a previous summary exists
         raw_db_messages = [
             {"role": "system", "content": "Workspace project directories initialized."},
@@ -39,7 +50,6 @@ class TestContextFormatter(unittest.TestCase):
         # Verify the raw summary itself is discarded from the messages array
         self.assertEqual(len(standardized_messages), 1)
         self.assertEqual(standardized_messages[0]["role"], "user")
-
 
 if __name__ == "__main__":
     unittest.main()

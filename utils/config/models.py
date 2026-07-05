@@ -31,3 +31,15 @@ def set_temperature(temp: float) -> None:
     config = load_config()
     config["models"]["temperature"] = max(0.0, min(float(temp), 2.0))
     save_config(config)
+
+def get_embedding_model(provider_name: str) -> str:
+    config = load_config()
+    fallback = "text-embedding-001" if provider_name.lower() == "gemini" else "nomic-embed-text-v1_5"
+    return config["models"].get("embedding_models", {}).get(provider_name.lower(), fallback)
+
+def set_embedding_model(provider_name: str, model_name: str) -> None:
+    config = load_config()
+    if "embedding_models" not in config["models"]:
+        config["models"]["embedding_models"] = {}
+    config["models"]["embedding_models"][provider_name.lower()] = model_name
+    save_config(config)

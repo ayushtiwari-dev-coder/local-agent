@@ -9,7 +9,8 @@ class TestFileToolsEdgeCases(unittest.TestCase):
     def setUp(self):
         # Create a safe temp directory to act as the sandbox for the test
         self.temp_sandbox = tempfile.TemporaryDirectory()
-        self.patcher = patch('tools.file_tools.SANDBOX_ROOT', self.temp_sandbox.name)
+        # FIX: Patch the config manager getter instead of the deleted SANDBOX_ROOT
+        self.patcher = patch('tools.file_tools.config_manager.get_workspace_path', return_value=self.temp_sandbox.name)
         self.patcher.start()
 
     def tearDown(self):
@@ -39,15 +40,13 @@ class TestFileToolsEdgeCases(unittest.TestCase):
         test_file = os.path.join(self.temp_sandbox.name, "dup.txt")
         with open(test_file, 'w') as f:
             f.write("test_content")
-        
+            
         # Payload is passed as a native Python list
         payload = ["dup.txt", "dup.txt", "dup.txt"]
         with patch('builtins.open', unittest.mock.mock_open(read_data="test_content")) as m:
             res = read_files(payload)
-        
-
+            
         self.assertEqual(len(res), 1)
-
         m.assert_called_once()
 
     def test_write_files_deduplication(self):

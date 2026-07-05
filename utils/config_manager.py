@@ -3,7 +3,8 @@ from utils.config.core import load_config, save_config
 from utils.config.models import (
     get_default_provider, set_default_provider,
     get_active_model, set_active_model,
-    get_temperature, set_temperature
+    get_temperature, set_temperature,
+    get_embedding_model, set_embedding_model
 )
 from utils.config.settings import (
     get_thinking_level, set_thinking_level,
@@ -15,6 +16,9 @@ from utils.config.settings import (
     get_cli_log_truncation_limit, set_cli_log_truncation_limit,
     get_memory_similarity_threshold, set_memory_similarity_threshold,
     get_api_retry_settings, set_api_retry_settings,
+    get_system_instruction, set_system_instruction,
+    get_workspace_path, set_workspace_path,
+    get_docker_image, set_docker_image
 )
 from utils.config.user import (
     get_user_profile, set_user_profile,

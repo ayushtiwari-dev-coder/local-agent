@@ -8,6 +8,7 @@ from llm.context_formatter import format_context
 from llm.generate_with_retry import generate_with_retry,is_quota_error  
 from engine.thinking_configure import get_thinking_config
 from utils.config_manager import get_thinking_level
+import utils.config_manager as config_manager
 
 class GeminiProvider(BaseLLMProvider):
     def __init__(self, api_key: str, model_name: str):
@@ -56,8 +57,9 @@ class GeminiProvider(BaseLLMProvider):
     def embed_text(self, texts: List[str]) -> List[List[float]]:
         """Generates embeddings using Gemini's native client."""
         try:
+            embedding_model = config_manager.get_embedding_model("gemini")
             response = self.client.models.embed_content(
-                model="gemini-embedding-001", 
+                model=embedding_model,
                 contents=texts
             )
             if not isinstance(response.embeddings, list):
@@ -83,7 +85,7 @@ class GeminiProvider(BaseLLMProvider):
             
         # Dynamically retrieve and apply the active thinking level
         
-        active_thinking_level = get_thinking_level()
+        active_thinking_level = config_manager.get_thinking_level()
         thinking_cfg = get_thinking_config(self.model_name, level=active_thinking_level)
         
         if thinking_cfg:

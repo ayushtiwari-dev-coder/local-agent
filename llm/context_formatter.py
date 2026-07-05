@@ -1,11 +1,6 @@
+import utils.config_manager as config_manager
 
-
-def format_context(db_messages: list[dict]) -> tuple[str, list[dict]]:
-    """
-    Extracts base instructions, handles system summaries, and formats the raw database 
-    messages into a clean, universal standard that any LLM provider can easily map.
-    """
-    base_instructions = (
+DEFAULT_SYSTEM_INSTRUCTION = (
         "You are a highly efficient, expert-level local development AI assistant.\n"
         "Your primary goal is to solve the user's request while STRICTLY minimizing API calls and token usage.\n\n"
         
@@ -24,6 +19,14 @@ def format_context(db_messages: list[dict]) -> tuple[str, list[dict]]:
         "5. STOP WHEN DONE: Once the user's objective is met, provide a concise final response and stop calling tools.\n"
         "6. ENVIRONMENT: You are running on a Windows system. ALWAYS use `python` instead of `python3` to execute Python scripts. Never use `python3`.\n"
     )
+
+def format_context(db_messages: list[dict]) -> tuple[str, list[dict]]:
+    """
+    Extracts base instructions, handles system summaries, and formats the raw database 
+    messages into a clean, universal standard that any LLM provider can easily map.
+    """
+    custom_system_instruction = config_manager.get_system_instruction()
+    base_instructions = custom_system_instruction if custom_system_instruction else DEFAULT_SYSTEM_INSTRUCTION
 
     system_instruction = base_instructions
     standardized_messages = []

@@ -37,6 +37,8 @@ class DockerSandboxExecutor:
         (or the Docker container error), never by inspecting the text of the output.
         """
         sandbox_config = config_manager.get_sandbox_settings()
+        docker_image = config_manager.get_docker_image()
+        workspace_path = config_manager.get_workspace_path()
         if timeout_seconds is None:
             timeout_seconds = sandbox_config.get("timeout_seconds", 15)
         if not self._check_docker():
@@ -48,9 +50,9 @@ class DockerSandboxExecutor:
             execution_cmd = f"sh -c {shlex.quote(command)}"
 
             container = client.containers.run(
-                image="python:3.11-slim",
+                image=docker_image,
                 command=execution_cmd,
-                volumes={self.sandbox_root: {"bind": "/workspace", "mode": "rw"}},
+                volumes={workspace_path: {"bind": "/workspace", "mode": "rw"}},
                 working_dir="/workspace",
                 network_disabled=True,          # Cuts off internet access within the container
                 mem_limit=sandbox_config.get("mem_limit", "512m"),      # Restrict memory usage

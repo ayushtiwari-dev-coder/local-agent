@@ -3,7 +3,8 @@ import os
 import json
 import subprocess
 from tools.sandbox_executor import DockerSandboxExecutor
-import logging    
+import logging
+import utils.config_manager as config_manager    
 
 logger = logging.getLogger("tools.file_tools")
 
@@ -11,10 +12,15 @@ SANDBOX_ROOT = os.path.abspath(
     os.path.join(os.path.expanduser("~"), ".local_workflow_agent", "workspace")
 )
 os.makedirs(SANDBOX_ROOT, exist_ok=True)
-
+def get_sandbox_root() -> str:
+    """Returns the absolute path to the sandboxed workspace root."""
+    path=config_manager.get_workspace_path()
+    os.makedirs(path, exist_ok=True)
+    return path
 def _resolve_safe_path(path: str) -> str | None:
-    full_path = os.path.abspath(os.path.join(SANDBOX_ROOT, path))
-    if os.path.commonpath([full_path, SANDBOX_ROOT]) != SANDBOX_ROOT:
+    sandbox_root = get_sandbox_root()
+    full_path = os.path.abspath(os.path.join(sandbox_root, path))
+    if os.path.commonpath([full_path, sandbox_root]) != sandbox_root:
         return None
     return full_path
 
@@ -94,7 +100,7 @@ def write_files(files: list[dict]) -> dict:
     return results
 
 
-_sandbox = DockerSandboxExecutor(SANDBOX_ROOT)
+_sandbox = DockerSandboxExecutor(get_sandbox_root())
 def run_terminal_command(command: str) -> dict:
     # Delegate execution entirely to your secure Sandbox Executor
     return _sandbox.run_command(command)

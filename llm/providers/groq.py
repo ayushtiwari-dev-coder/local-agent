@@ -8,6 +8,7 @@ from ..schemas import LLMResponse, ToolCall
 from llm.context_formatter import format_context
 from llm.generate_with_retry import generate_with_retry,is_quota_error
 import re
+import utils.config_manager as config_manager
 def _function_to_schema(func: Callable) -> Dict[str, Any]:
     """Generates an OpenAI/Groq compatible tool schema from a Python callable."""
     name = func.__name__
@@ -128,8 +129,9 @@ class GroqProvider(BaseLLMProvider):
     def embed_text(self, texts: List[str]) -> List[List[float]]:
         """Generates embeddings using Groq's fast embedding endpoint."""
         try:
+            embedding_model = config_manager.get_embedding_model("groq")
             response = self.client.embeddings.create(
-                model="nomic-embed-text-v1_5",
+                model=embedding_model,
                 input=texts
             )
             return [emb.embedding for emb in response.data]

@@ -2,6 +2,7 @@
 import time
 from rich.console import Console
 from rich.panel import Panel
+from cli.security_rules import UNSAFE_TOOLS
 
 console = Console()
 
@@ -17,11 +18,7 @@ def reset_execution_counters() -> None:
 
 def cli_tool_approval_callback(tool_name: str, arguments: dict) -> bool:
     """Supervised Permission Check: Halts execution to ask the user for authorization."""
-
-    unsafe_tools = {
-        "run_terminal_command"
-    }
-
+    unsafe_tools = UNSAFE_TOOLS
     if tool_name not in unsafe_tools:
         return True
         

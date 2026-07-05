@@ -110,3 +110,29 @@ def set_loop_guard(max_failed: int | None, max_success: int | None) -> None:
         "max_success_attempts": int(max_success) if (max_success is not None and int(max_success) > 0) else None
     }
     save_config(config)
+
+def get_system_instruction() -> str | None:
+    return load_config()["settings"].get("system_instruction")
+
+def set_system_instruction(instruction: str | None) -> None:
+    config = load_config()
+    config["settings"]["system_instruction"] = instruction.strip() if instruction and instruction.strip() else None
+    save_config(config)
+
+def get_workspace_path() -> str:
+    path = load_config()["settings"].get("sandbox", {}).get("workspace_path", "~/.local_workflow_agent/workspace")
+    import os
+    return os.path.abspath(os.path.expanduser(path))
+
+def set_workspace_path(path: str) -> None:
+    config = load_config()
+    config["settings"]["sandbox"]["workspace_path"] = path.strip()
+    save_config(config)
+
+def get_docker_image() -> str:
+    return load_config()["settings"].get("sandbox", {}).get("docker_image", "python:3.11-slim")
+
+def set_docker_image(image: str) -> None:
+    config = load_config()
+    config["settings"]["sandbox"]["docker_image"] = image.strip()
+    save_config(config)

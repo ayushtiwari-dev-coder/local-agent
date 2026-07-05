@@ -21,6 +21,10 @@ DEFAULT_CONFIG = {
             "gemini": "gemini-3.1-flash-lite",
             "groq": "llama-3.3-70b-versatile"
         },
+        "embedding_models": {
+            "gemini": "text-embedding-001",  # Latest Gemini embedding model (or "models/embedding-001")
+            "groq": "nomic-embed-text-v1_5"  # Standard Groq embedding model
+        },
         "temperature": 0.2
     },
     "settings": {
@@ -32,10 +36,13 @@ DEFAULT_CONFIG = {
             "max_failed_attempts": 3,
             "max_success_attempts": 2
         },
+        "system_instruction": None,
         "sandbox": {
             "memory_limit": "512m",
             "cpu_limit": 1000000000,
-            "timeout_seconds": 15
+            "timeout_seconds": 15,
+            "docker_image": "python:3.11-slim",
+            "workspace_path":"`/.local_workflow_agent/workspace`",
         },
         "cli": {
             "log_truncation_limit": 500
