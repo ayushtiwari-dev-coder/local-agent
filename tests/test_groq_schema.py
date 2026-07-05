@@ -3,6 +3,7 @@
 import unittest
 from llm.providers.groq import _function_to_schema
 
+
 class TestGroqSchema(unittest.TestCase):
     """Verifies that Python functions are correctly parsed into OpenAI/Groq JSON-schemas."""
 
@@ -19,11 +20,14 @@ class TestGroqSchema(unittest.TestCase):
         self.assertEqual(schema["type"], "function")
         func_details = schema["function"]
         self.assertEqual(func_details["name"], "write_report")
-        self.assertEqual(func_details["description"], "Writes lines of content to a specified local file path.")
+        self.assertEqual(
+            func_details["description"],
+            "Writes lines of content to a specified local file path.",
+        )
 
         params = func_details["parameters"]
         self.assertEqual(params["type"], "object")
-        
+
         properties = params["properties"]
         self.assertEqual(properties["filepath"]["type"], "string")
         self.assertEqual(properties["lines_count"]["type"], "integer")

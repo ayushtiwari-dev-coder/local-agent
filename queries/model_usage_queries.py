@@ -1,13 +1,22 @@
 import sqlite3
 from database.helper import execute_read, execute_write
 
-def log_model_usage(conversation_id: int | None, model_name: str, prompt_tokens: int, completion_tokens: int) -> dict:
+
+def log_model_usage(
+    conversation_id: int | None,
+    model_name: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+) -> dict:
     """
     Logs token consumption. Automatically sums total_tokens.
     """
     total_tokens = prompt_tokens + completion_tokens
     query = "INSERT INTO model_usage (conversation_id, model_name, prompt_tokens, completion_tokens, total_tokens) VALUES (?, ?, ?, ?, ?);"
-    usage_id = execute_write(query, (conversation_id, model_name, prompt_tokens, completion_tokens, total_tokens))
+    usage_id = execute_write(
+        query,
+        (conversation_id, model_name, prompt_tokens, completion_tokens, total_tokens),
+    )
     return get_usage_by_id(usage_id)
 
 

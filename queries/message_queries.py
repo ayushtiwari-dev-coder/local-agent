@@ -1,6 +1,7 @@
 import sqlite3
 from database.helper import execute_read, execute_write
 
+
 def create_message(conversation_id: int, role: str, content: str) -> dict:
     """
     Creates a new message. Validates role parameter first.
@@ -8,13 +9,15 @@ def create_message(conversation_id: int, role: str, content: str) -> dict:
     valid_roles = {"system", "user", "assistant"}
     if role not in valid_roles:
         raise ValueError(f"Invalid message role '{role}'. Must be one of {valid_roles}")
-        
+
     query = "INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?);"
     try:
         message_id = execute_write(query, (conversation_id, role, content))
         return get_message_by_id(message_id)
     except sqlite3.IntegrityError as e:
-        raise ValueError(f"Cannot create message. Conversation with ID {conversation_id} does not exist.") from e
+        raise ValueError(
+            f"Cannot create message. Conversation with ID {conversation_id} does not exist."
+        ) from e
 
 
 def get_message_by_id(message_id: int) -> dict:

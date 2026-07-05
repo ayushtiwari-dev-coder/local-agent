@@ -5,6 +5,7 @@ import os
 from unittest.mock import patch
 import utils.config_manager as cm
 
+
 class TestConfigManager(unittest.TestCase):
     """Verifies config loading defaults, local file writing, environment variables, and edge cases."""
 
@@ -13,9 +14,11 @@ class TestConfigManager(unittest.TestCase):
         self.temp_config = tempfile.NamedTemporaryFile(delete=False)
         self.temp_config_path = self.temp_config.name
         self.temp_config.close()
-        
+
         # Patch the module-level configuration path constant
-        self.path_patcher = patch("utils.config.core.CONFIG_PATH", self.temp_config_path)
+        self.path_patcher = patch(
+            "utils.config.core.CONFIG_PATH", self.temp_config_path
+        )
         self.path_patcher.start()
 
     def tearDown(self):
@@ -55,13 +58,13 @@ class TestConfigManager(unittest.TestCase):
         lg = cm.get_loop_guard()
         self.assertEqual(lg["max_failed_attempts"], 5)
         self.assertEqual(lg["max_success_attempts"], 10)
-        
+
         # 2. Test Zero and None (Clearing the configuration)
         cm.set_loop_guard(max_failed=0, max_success=None)
         lg_reset = cm.get_loop_guard()
         self.assertIsNone(lg_reset["max_failed_attempts"])
         self.assertIsNone(lg_reset["max_success_attempts"])
-        
+
         # 3. Test Negative Values (Malicious / Accidental Inputs)
         cm.set_loop_guard(max_failed=-5, max_success=-1)
         lg_negative = cm.get_loop_guard()
@@ -72,12 +75,14 @@ class TestConfigManager(unittest.TestCase):
         """Verifies that setting a custom instruction writes to the config, and clearing it returns None."""
         # 1. Set Custom
         cm.set_system_instruction("You are a helpful coding assistant.")
-        self.assertEqual(cm.get_system_instruction(), "You are a helpful coding assistant.")
-        
+        self.assertEqual(
+            cm.get_system_instruction(), "You are a helpful coding assistant."
+        )
+
         # 2. Clear (set to None or empty)
         cm.set_system_instruction("")
         self.assertIsNone(cm.get_system_instruction())
-        
+
         cm.set_system_instruction(None)
         self.assertIsNone(cm.get_system_instruction())
 
@@ -86,7 +91,7 @@ class TestConfigManager(unittest.TestCase):
         # Test Gemini
         cm.set_embedding_model("gemini", "custom-gemini-embed-v2")
         self.assertEqual(cm.get_embedding_model("gemini"), "custom-gemini-embed-v2")
-        
+
         # Test Groq
         cm.set_embedding_model("groq", "custom-nomic-v3")
         self.assertEqual(cm.get_embedding_model("groq"), "custom-nomic-v3")
@@ -96,11 +101,14 @@ class TestConfigManager(unittest.TestCase):
         # Docker Image
         cm.set_docker_image("node:18-alpine")
         self.assertEqual(cm.get_docker_image(), "node:18-alpine")
-        
+
         # Workspace Path
         cm.set_workspace_path("/custom/dev/folder")
         # get_workspace_path returns an absolute expanded path, so we verify it ends correctly
-        self.assertTrue(cm.get_workspace_path().endswith("custom/dev/folder".replace('/', os.sep)))
+        self.assertTrue(
+            cm.get_workspace_path().endswith("custom/dev/folder".replace("/", os.sep))
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

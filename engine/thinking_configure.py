@@ -3,12 +3,16 @@ from google.genai import types
 
 THINKING_CAPABLE_PREFIX = "gemini-3"
 
+
 def supports_thinking(model_name: str) -> bool:
     """Verifies if the model name supports thinking capabilities (Gemini 3.x and Gemma 4)."""
     name_lower = model_name.lower()
     return name_lower.startswith("gemini-3") or name_lower.startswith("gemma-4")
 
-def get_thinking_config(model_name: str, level: str = "high") -> types.ThinkingConfig | None:
+
+def get_thinking_config(
+    model_name: str, level: str = "high"
+) -> types.ThinkingConfig | None:
     """
     Returns the appropriate ThinkingConfig for the model.
     Accepts levels: 'low', 'medium', 'high', 'off'.
@@ -16,7 +20,7 @@ def get_thinking_config(model_name: str, level: str = "high") -> types.ThinkingC
     """
     if level.lower() == "off":
         return None
-        
+
     if not supports_thinking(model_name):
         return None
 

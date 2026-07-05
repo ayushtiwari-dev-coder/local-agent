@@ -2,6 +2,7 @@ import sqlite3
 from database.connection import DATABASE_PATH
 from database.table_generator import create_tables
 
+
 def migrate_memory_tables():
     print(f"Migrating database at {DATABASE_PATH}...")
     conn = sqlite3.connect(DATABASE_PATH)
@@ -15,10 +16,11 @@ def migrate_memory_tables():
         print(f"Error dropping tables: {e}")
     finally:
         conn.close()
-    
+
     # Re-run your existing table generator to build the new schema
     create_tables()
     print("New semantic memory tables created successfully!")
+
 
 if __name__ == "__main__":
     migrate_memory_tables()

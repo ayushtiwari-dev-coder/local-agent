@@ -1,6 +1,6 @@
 def _to_native_types(val):
     """
-    Recursively converts Protobuf-specific mapping and list types 
+    Recursively converts Protobuf-specific mapping and list types
     (like RepeatedComposite, MapFieldsContainer, Struct) into standard Python dicts/lists.
     """
     if hasattr(val, "items"):

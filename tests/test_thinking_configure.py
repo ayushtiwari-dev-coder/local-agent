@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 from engine.thinking_configure import supports_thinking, get_thinking_config
 
+
 class TestThinkingConfigure(unittest.TestCase):
     """Verifies support checks and enum/string fallback mappings for thinking configurations."""
 
@@ -11,7 +12,7 @@ class TestThinkingConfigure(unittest.TestCase):
         # Check models that support reasoning natively
         self.assertTrue(supports_thinking("gemini-3.1-flash-lite"))
         self.assertTrue(supports_thinking("gemma-4-26b-a4b-it"))
-        
+
         # Check models that do not support reasoning
         self.assertFalse(supports_thinking("gemini-2.5-flash"))
 

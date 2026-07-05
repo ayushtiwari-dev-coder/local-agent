@@ -2,12 +2,13 @@
 import time
 import utils.config_manager as config_manager
 
+
 def generate_with_retry(
     request_fn,
     is_quota_error_fn,
     status_callback=None,
     max_attempts: int = None,
-    base_delay: float = None
+    base_delay: float = None,
 ) -> any:
     """
     Generic template to safely handle content generation and API requests for any LLM
@@ -29,7 +30,7 @@ def generate_with_retry(
 
             # Handle empty responses
             if attempt < max_attempts - 1:
-                delay = base_delay * (2 ** attempt)
+                delay = base_delay * (2**attempt)
                 if status_callback:
                     status_callback(
                         f"Encountered empty response. "
@@ -55,7 +56,9 @@ def generate_with_retry(
                     response = request_fn()
                     if response:
                         return response
-                    raise RuntimeError("Daily quota limit has been reached. Stopping the request at this moment.")
+                    raise RuntimeError(
+                        "Daily quota limit has been reached. Stopping the request at this moment."
+                    )
                 except Exception as retry_err:
                     # Only report "quota exhausted" if the retry actually failed for
                     # a quota-related reason. Anything else (network blip, transient
@@ -73,7 +76,7 @@ def generate_with_retry(
             if attempt == max_attempts - 1:
                 raise e
 
-            delay = base_delay * (2 ** attempt)
+            delay = base_delay * (2**attempt)
             exc_str = str(e)
             if status_callback:
                 status_callback(

@@ -1,6 +1,6 @@
 # cli/menu_flows.py
 import sys
-from cli.constants import SEPARATOR, SUPPORTED_MODELS,SUPPORTED_EMBEDDING_MODELS
+from cli.constants import SEPARATOR, SUPPORTED_MODELS, SUPPORTED_EMBEDDING_MODELS
 from database.table_generator import create_tables
 from queries.conversation_queries import get_all_conversations, create_conversation
 from managers.user_manager import get_active_user, register_user
@@ -8,25 +8,29 @@ from cli.callbacks import validate_api_key
 from cli.chat_loop import enter_chat_session
 import utils.config_manager as config_manager
 
+
 def display_conversation_list() -> list[dict]:
     """Retrieves and lists conversations chronologically: oldest on top, latest/newest on bottom."""
-    conversations = get_all_conversations() # Returns newest first from DB query
-    
+    conversations = get_all_conversations()  # Returns newest first from DB query
+
     # Reverse so that the latest/newest conversation is at the bottom of the list
     chronological_convs = list(reversed(conversations))
-    
+
     print(SEPARATOR)
     if not chronological_convs:
-        print(" (No active conversations found. Choose option [1] to start a new session.)")
+        print(
+            " (No active conversations found. Choose option [1] to start a new session.)"
+        )
         print(SEPARATOR)
         return chronological_convs
-        
+
     print(" Your Conversations (Chronological):\n")
     for idx, conv in enumerate(chronological_convs, start=1):
         created = conv.get("created_at", "unknown time")
         print(f" [{idx}] (id={conv['id']}) \"{conv['title']}\" - created {created}")
     print(SEPARATOR)
     return chronological_convs
+
 
 def prompt_pick_conversation(conversations: list[dict]) -> dict | None:
     """Prompts selection of a conversation index."""
@@ -41,6 +45,7 @@ def prompt_pick_conversation(conversations: list[dict]) -> dict | None:
         print(" That number isn't in the list.")
         return None
     return conversations[index]
+
 
 def main_menu(user_name: str) -> str:
     print(SEPARATOR)
@@ -59,8 +64,9 @@ def main_menu(user_name: str) -> str:
         "3": "rename",
         "4": "delete",
         "5": "config",
-        "6": "exit"
+        "6": "exit",
     }.get(choice, "invalid")
+
 
 def rename_conversation_flow() -> None:
     """Interactively modifies titles."""
@@ -76,10 +82,12 @@ def rename_conversation_flow() -> None:
         return
     try:
         from queries.conversation_queries import update_conversation_title
+
         updated = update_conversation_title(target["id"], new_title)
         print(f" Renamed to \"{updated['title']}\".")
     except ValueError as e:
         print(f" Error: {e}")
+
 
 def delete_conversation_flow() -> None:
     """Safely removes conversations using standard cascading rules."""
@@ -90,17 +98,26 @@ def delete_conversation_flow() -> None:
     if not target:
         return
     print(SEPARATOR)
-    confirm = input(f" Are you sure you want to delete '{target['title']}'? (y/n): ").strip().lower()
+    confirm = (
+        input(f" Are you sure you want to delete '{target['title']}'? (y/n): ")
+        .strip()
+        .lower()
+    )
     if confirm == "y":
         try:
             from queries.conversation_queries import delete_conversation
+
             delete_conversation(target["id"])
             from rich.console import Console
-            Console().print(f"[bold red] Successfully deleted Conversation ID {target['id']}.[/bold red]\n")
+
+            Console().print(
+                f"[bold red] Successfully deleted Conversation ID {target['id']}.[/bold red]\n"
+            )
         except Exception as e:
             print(f" Error during deletion execution: {e}")
     else:
         print(" Deletion cancelled safely.")
+
 
 def configure_provider_flow(provider_name: str = None) -> bool:
     """Configures credentials."""
@@ -117,29 +134,34 @@ def configure_provider_flow(provider_name: str = None) -> bool:
         else:
             print(" Invalid selection. Returning.")
             return False
-            
+
     print(SEPARATOR)
     print(f" Setting up API key for: [{provider_name.upper()}]")
     key_input = input(" Paste your API key: ").strip()
     if not key_input:
         print(" API Key cannot be blank.")
         return False
-        
+
     is_valid = validate_api_key(provider_name, key_input)
     if is_valid:
         print(" API key verified successfully!")
     else:
-        allow = input(" Key validation failed. Allow saving this key anyway? (y/n): ").strip().lower()
+        allow = (
+            input(" Key validation failed. Allow saving this key anyway? (y/n): ")
+            .strip()
+            .lower()
+        )
         if allow != "y":
             print(" Setup cancelled. Key not saved.")
             return False
-            
+
     config_manager.set_provider_api_key(provider_name, key_input)
     print(f" Successfully configured {provider_name.upper()}!")
     return True
 
 
 # cli/menu_flows.py
+
 
 def models_configuration_flow() -> None:
     """New dedicated menu for Base Instructions and Embedding Models."""
@@ -148,12 +170,16 @@ def models_configuration_flow() -> None:
         print(" Models & Prompts Configuration")
         print(SEPARATOR)
         print(" [1] Edit Base System Instructions")
-        print(f" [2] Set Gemini Embedding Model (Current: {config_manager.get_embedding_model('gemini')})")
-        print(f" [3] Set Groq Embedding Model (Current: {config_manager.get_embedding_model('groq')})")
+        print(
+            f" [2] Set Gemini Embedding Model (Current: {config_manager.get_embedding_model('gemini')})"
+        )
+        print(
+            f" [3] Set Groq Embedding Model (Current: {config_manager.get_embedding_model('groq')})"
+        )
         print(" [4] Back")
-        
+
         choice = input(" Choose option (1-4): ").strip()
-        
+
         if choice == "1":
             print("\nType your new system prompt (Type 'CLEAR' to revert to default).")
             val = input("Prompt: ").strip()
@@ -163,28 +189,32 @@ def models_configuration_flow() -> None:
             elif val:
                 config_manager.set_system_instruction(val)
                 print(" System instructions updated.")
-                
+
         elif choice in ("2", "3"):
             provider = "gemini" if choice == "2" else "groq"
             models = SUPPORTED_EMBEDDING_MODELS.get(provider, [])
-            
+
             print(SEPARATOR)
             print(f" Select {provider.capitalize()} Embedding Model:")
             print(SEPARATOR)
-            
+
             for idx, m in enumerate(models, start=1):
                 print(f" [{idx}] {m['model']} - ({m['desc']})")
             print(SEPARATOR)
-            
-            pick = input(f" Choose model (1-{len(models)}) [or Enter to cancel]: ").strip()
-            
+
+            pick = input(
+                f" Choose model (1-{len(models)}) [or Enter to cancel]: "
+            ).strip()
+
             if pick.isdigit() and 1 <= int(pick) <= len(models):
                 selected_model = models[int(pick) - 1]["model"]
                 config_manager.set_embedding_model(provider, selected_model)
-                print(f"\n[Success] {provider.capitalize()} embedding model updated to: {selected_model}")
+                print(
+                    f"\n[Success] {provider.capitalize()} embedding model updated to: {selected_model}"
+                )
             else:
                 print("\nSelection cancelled or invalid.")
-                
+
         elif choice == "4":
             break
         else:
@@ -197,26 +227,54 @@ def advanced_settings_flow() -> None:
         print(SEPARATOR)
         print(" Advanced Agent System Configuration Settings")
         print(SEPARATOR)
-        print(f"  [1] Adjust ReAct Loop Maximum Turns (Current: {config_manager.get_max_turns()})")
-        print(f"  [2] Set Sliding Window Context Size (Current: {config_manager.get_max_context_tokens()} tokens)")
-        print(f"  [3] Modify Background Summary Threshold (Current: {config_manager.get_summary_trigger_count()} messages)")
-        print(f"  [4] Configure Safe Sandbox Limits (Current: {config_manager.get_sandbox_settings()['memory_limit']} RAM)")
-        print(f"  [5] Set Local Log Truncation length (Current: {config_manager.get_cli_log_truncation_limit()} chars)")
-        print(f"  [6] Set Memory Category Similarity Match (Current: {config_manager.get_memory_similarity_threshold()})")
-        print(f"  [7] Configure Network Retry Bounds (Current: {config_manager.get_api_retry_settings()['max_attempts']} tries)")
-        
+        print(
+            f"  [1] Adjust ReAct Loop Maximum Turns (Current: {config_manager.get_max_turns()})"
+        )
+        print(
+            f"  [2] Set Sliding Window Context Size (Current: {config_manager.get_max_context_tokens()} tokens)"
+        )
+        print(
+            f"  [3] Modify Background Summary Threshold (Current: {config_manager.get_summary_trigger_count()} messages)"
+        )
+        print(
+            f"  [4] Configure Safe Sandbox Limits (Current: {config_manager.get_sandbox_settings()['memory_limit']} RAM)"
+        )
+        print(
+            f"  [5] Set Local Log Truncation length (Current: {config_manager.get_cli_log_truncation_limit()} chars)"
+        )
+        print(
+            f"  [6] Set Memory Category Similarity Match (Current: {config_manager.get_memory_similarity_threshold()})"
+        )
+        print(
+            f"  [7] Configure Network Retry Bounds (Current: {config_manager.get_api_retry_settings()['max_attempts']} tries)"
+        )
+
         # Resolve currently configured loop guard settings
         lg = config_manager.get_loop_guard()
         failed_val = lg.get("max_failed_attempts")
         success_val = lg.get("max_success_attempts")
-        failed_display = failed_val if (failed_val is not None and failed_val > 0) else "Default Fallback (3)"
-        success_display = success_val if (success_val is not None and success_val > 0) else "Default Fallback (2)"
-        
-        print(f"  [8] Configure Loop Guard Thresholds (Current: Failed={failed_display}, Success={success_display})")
-        
+        failed_display = (
+            failed_val
+            if (failed_val is not None and failed_val > 0)
+            else "Default Fallback (3)"
+        )
+        success_display = (
+            success_val
+            if (success_val is not None and success_val > 0)
+            else "Default Fallback (2)"
+        )
+
+        print(
+            f"  [8] Configure Loop Guard Thresholds (Current: Failed={failed_display}, Success={success_display})"
+        )
+
         # --- NEW SETTINGS ADDED HERE ---
-        print(f"  [9] Set Sandbox Workspace Path (Current: {config_manager.get_workspace_path()})")
-        print(f"  [10] Set Sandbox Docker Image (Current: {config_manager.get_docker_image()})")
+        print(
+            f"  [9] Set Sandbox Workspace Path (Current: {config_manager.get_workspace_path()})"
+        )
+        print(
+            f"  [10] Set Sandbox Docker Image (Current: {config_manager.get_docker_image()})"
+        )
         print("  [11] Back to Settings Menu")
         print(SEPARATOR)
 
@@ -226,63 +284,88 @@ def advanced_settings_flow() -> None:
             val = input(" Enter maximum execution steps (e.g. 10 to 30): ").strip()
             if val.isdigit():
                 config_manager.set_max_turns(int(val))
-                print(f" Max turns successfully updated to {config_manager.get_max_turns()}!")
+                print(
+                    f" Max turns successfully updated to {config_manager.get_max_turns()}!"
+                )
             else:
                 print(" Invalid input.")
         elif choice == "2":
-            val = input(" Enter max context window size (e.g., 8192 to 200000): ").strip()
+            val = input(
+                " Enter max context window size (e.g., 8192 to 200000): "
+            ).strip()
             if val.isdigit():
                 config_manager.set_max_context_tokens(int(val))
-                print(f" Max tokens successfully updated to {config_manager.get_max_context_tokens()}!")
+                print(
+                    f" Max tokens successfully updated to {config_manager.get_max_context_tokens()}!"
+                )
             else:
                 print(" Invalid input.")
         elif choice == "3":
-            val = input(" Enter trigger count of un-summarized messages (e.g., 10 to 50): ").strip()
+            val = input(
+                " Enter trigger count of un-summarized messages (e.g., 10 to 50): "
+            ).strip()
             if val.isdigit():
                 config_manager.set_summary_trigger_count(int(val))
-                print(f" Trigger count successfully updated to {config_manager.get_summary_trigger_count()}!")
+                print(
+                    f" Trigger count successfully updated to {config_manager.get_summary_trigger_count()}!"
+                )
             else:
                 print(" Invalid input.")
         elif choice == "4":
             sandbox = config_manager.get_sandbox_settings()
-            mem = input(f" Enter Docker container RAM limit (e.g. 512m, 1g, 2g) [Current: {sandbox['memory_limit']}]: ").strip()
-            timeout = input(f" Enter execution timeout in seconds (e.g. 15, 30, 60) [Current: {sandbox['timeout_seconds']}]: ").strip()
+            mem = input(
+                f" Enter Docker container RAM limit (e.g. 512m, 1g, 2g) [Current: {sandbox['memory_limit']}]: "
+            ).strip()
+            timeout = input(
+                f" Enter execution timeout in seconds (e.g. 15, 30, 60) [Current: {sandbox['timeout_seconds']}]: "
+            ).strip()
             if timeout.isdigit() and mem:
                 config_manager.set_sandbox_settings(
                     memory_limit=mem,
                     cpu_limit=sandbox["cpu_limit"],
-                    timeout_seconds=int(timeout)
+                    timeout_seconds=int(timeout),
                 )
                 print(" Sandbox safety bounds updated successfully!")
             else:
                 print(" Invalid inputs.")
         elif choice == "5":
-            val = input(" Enter max characters displayed for logs (e.g. 200 to 2000): ").strip()
+            val = input(
+                " Enter max characters displayed for logs (e.g. 200 to 2000): "
+            ).strip()
             if val.isdigit():
                 config_manager.set_cli_log_truncation_limit(int(val))
-                print(f" Truncation limit successfully updated to {config_manager.get_cli_log_truncation_limit()} characters!")
+                print(
+                    f" Truncation limit successfully updated to {config_manager.get_cli_log_truncation_limit()} characters!"
+                )
             else:
                 print(" Invalid input.")
         elif choice == "6":
-            val = input(" Enter clustering similarity score (0.0 to 1.0) [e.g. 0.80]: ").strip()
+            val = input(
+                " Enter clustering similarity score (0.0 to 1.0) [e.g. 0.80]: "
+            ).strip()
             try:
                 score = float(val)
                 if 0.0 <= score <= 1.0:
                     config_manager.set_memory_similarity_threshold(score)
-                    print(f" Memory matching threshold successfully updated to {config_manager.get_memory_similarity_threshold()}!")
+                    print(
+                        f" Memory matching threshold successfully updated to {config_manager.get_memory_similarity_threshold()}!"
+                    )
                 else:
                     print(" Out of range. Value must be between 0.0 and 1.0.")
             except ValueError:
                 print(" Invalid input.")
         elif choice == "7":
             retry = config_manager.get_api_retry_settings()
-            attempts = input(f" Enter maximum retry attempts (e.g. 3, 5) [Current: {retry['max_attempts']}]: ").strip()
-            delay = input(f" Enter base delay in seconds (e.g. 2.0, 5.0) [Current: {retry['base_delay']}]: ").strip()
+            attempts = input(
+                f" Enter maximum retry attempts (e.g. 3, 5) [Current: {retry['max_attempts']}]: "
+            ).strip()
+            delay = input(
+                f" Enter base delay in seconds (e.g. 2.0, 5.0) [Current: {retry['base_delay']}]: "
+            ).strip()
             if attempts.isdigit():
                 try:
                     config_manager.set_api_retry_settings(
-                        max_attempts=int(attempts),
-                        base_delay=float(delay)
+                        max_attempts=int(attempts), base_delay=float(delay)
                     )
                     print(" Network API retry bounds successfully updated!")
                 except ValueError:
@@ -291,39 +374,53 @@ def advanced_settings_flow() -> None:
                 print(" Invalid attempts format.")
         elif choice == "8":
             print("\n--- Loop Guard Threshold Configuration ---")
-            print("Leave blank, enter 0, or type 'none' to reset back to template default limits.")
-            failed_in = input("Enter max consecutive failures allowed: ").strip().lower()
-            success_in = input("Enter max consecutive successes allowed: ").strip().lower()
-            
-            if failed_in in ("", "0", "none", "null"): max_failed = None
+            print(
+                "Leave blank, enter 0, or type 'none' to reset back to template default limits."
+            )
+            failed_in = (
+                input("Enter max consecutive failures allowed: ").strip().lower()
+            )
+            success_in = (
+                input("Enter max consecutive successes allowed: ").strip().lower()
+            )
+
+            if failed_in in ("", "0", "none", "null"):
+                max_failed = None
             else:
                 try:
                     max_failed = int(failed_in)
-                    if max_failed <= 0: max_failed = None
+                    if max_failed <= 0:
+                        max_failed = None
                 except ValueError:
                     print("Invalid input for failures. Resorting to Default Fallback.")
                     max_failed = None
 
-            if success_in in ("", "0", "none", "null"): max_success = None
+            if success_in in ("", "0", "none", "null"):
+                max_success = None
             else:
                 try:
                     max_success = int(success_in)
-                    if max_success <= 0: max_success = None
+                    if max_success <= 0:
+                        max_success = None
                 except ValueError:
                     print("Invalid input for successes. Resorting to Default Fallback.")
                     max_success = None
-            
+
             config_manager.set_loop_guard(max_failed, max_success)
             print("\n[Success] Loop Guard thresholds updated successfully!")
-            
+
         # --- NEW LOGIC ADDED HERE ---
         elif choice == "9":
-            val = input(" Enter absolute path for workspace (e.g. ~/.local_workflow_agent/workspace): ").strip()
+            val = input(
+                " Enter absolute path for workspace (e.g. ~/.local_workflow_agent/workspace): "
+            ).strip()
             if val:
                 config_manager.set_workspace_path(val)
                 print(" Workspace path updated successfully.")
         elif choice == "10":
-            val = input(" Enter Docker image (e.g. python:3.11-slim, node:18-alpine): ").strip()
+            val = input(
+                " Enter Docker image (e.g. python:3.11-slim, node:18-alpine): "
+            ).strip()
             if val:
                 config_manager.set_docker_image(val)
                 print(" Docker image updated successfully.")
@@ -338,25 +435,39 @@ def provider_management_flow() -> None:
     while True:
         print(SEPARATOR)
         print(" Provider & API Key Management Menu")
-        gemini_status = "Configured" if config_manager.is_provider_configured("gemini") else "Not Set"
-        groq_status = "Configured" if config_manager.is_provider_configured("groq") else "Not Set"
+        gemini_status = (
+            "Configured"
+            if config_manager.is_provider_configured("gemini")
+            else "Not Set"
+        )
+        groq_status = (
+            "Configured" if config_manager.is_provider_configured("groq") else "Not Set"
+        )
         active_default = config_manager.get_default_provider()
 
-        print(f"  [1] View Configured Status (Gemini: {gemini_status} | Groq: {groq_status})")
+        print(
+            f"  [1] View Configured Status (Gemini: {gemini_status} | Groq: {groq_status})"
+        )
         print("  [2] Add / Edit a Provider API Key")
-        print(f"  [3] Change Default Active Provider (Current: {active_default.upper()})")
+        print(
+            f"  [3] Change Default Active Provider (Current: {active_default.upper()})"
+        )
         print("  [4] Edit Advanced Agent Settings (Max Turns, Sandbox, etc.)")
-        print("  [5] Models & Prompts Configuration")   # <-- New Menu Option
-        print("  [6] Back to Main Menu")                # <-- Shifted to 6
+        print("  [5] Models & Prompts Configuration")  # <-- New Menu Option
+        print("  [6] Back to Main Menu")  # <-- Shifted to 6
         print(SEPARATOR)
 
         choice = input(" Choose option (1-6): ").strip()
-        
+
         if choice == "1":
             print(SEPARATOR)
             print(" Current Configured Status:")
-            print(f"    - GEMINI: {gemini_status} (Active Model: {config_manager.get_active_model('gemini')})")
-            print(f"    - GROQ:   {groq_status} (Active Model: {config_manager.get_active_model('groq')})")
+            print(
+                f"    - GEMINI: {gemini_status} (Active Model: {config_manager.get_active_model('gemini')})"
+            )
+            print(
+                f"    - GROQ:   {groq_status} (Active Model: {config_manager.get_active_model('groq')})"
+            )
             print(f"    - DEFAULT PROVIDER: {active_default.upper()}")
             input("\n Press Enter to continue...")
         elif choice == "2":
@@ -364,7 +475,8 @@ def provider_management_flow() -> None:
         elif choice == "3":
             print(SEPARATOR)
             print(f" Set Default Provider (Current: {active_default.upper()})")
-            from cli.constants import SUPPORTED_MODELS # Ensure this is imported at top
+            from cli.constants import SUPPORTED_MODELS  # Ensure this is imported at top
+
             for idx, prov in enumerate(SUPPORTED_MODELS.keys(), start=1):
                 print(f"  [{idx}] {prov.upper()}")
             sub_choice = input(" Choose default (1-2): ").strip()
@@ -381,6 +493,7 @@ def provider_management_flow() -> None:
         else:
             print(" Invalid selection.")
 
+
 def run_main_app_loop() -> None:
     """The central profile checking and loop routing container."""
     user = get_active_user()
@@ -390,27 +503,37 @@ def run_main_app_loop() -> None:
         while True:
             try:
                 name = input("Enter your Display Name (e.g. Ayush): ").strip()
-                username = input("Enter your unique Username (e.g. ayush_tiwari): ").strip()
+                username = input(
+                    "Enter your unique Username (e.g. ayush_tiwari): "
+                ).strip()
                 user = register_user(name, username)
-                print(f"\nSuccess: Profile created for {user['name']} (@{user['username']})!")
+                print(
+                    f"\nSuccess: Profile created for {user['name']} (@{user['username']})!"
+                )
                 break
             except ValueError as e:
                 print(f"Validation Error: {e}. Please try again.\n")
-                
+
     if not config_manager.has_any_provider_configured():
         print("\n Welcome! No LLM providers have been configured yet.")
         print(" Let's set up your first API key before getting started.")
         configure_provider_flow()
-        
+
     if not config_manager.has_any_provider_configured():
-        print("\n An active LLM provider API key is required to run the agent. Exiting.")
+        print(
+            "\n An active LLM provider API key is required to run the agent. Exiting."
+        )
         sys.exit(1)
-        
+
     while True:
         choice = main_menu(user["name"])
         if choice == "new":
-            title = input(" Title for this conversation (blank = 'New Conversation'): ").strip()
-            session = create_conversation(user_id=user["id"], title=title or "New Conversation")
+            title = input(
+                " Title for this conversation (blank = 'New Conversation'): "
+            ).strip()
+            session = create_conversation(
+                user_id=user["id"], title=title or "New Conversation"
+            )
             print(f"\n Started new conversation (id={session['id']}).")
             enter_chat_session(session["id"])
         elif choice == "resume":

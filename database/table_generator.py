@@ -1,6 +1,7 @@
 import sqlite3
 from database.connection import get_connection
 
+
 def create_tables() -> None:
     """
     Creates all foundational database tables if they do not exist.
@@ -17,7 +18,6 @@ def create_tables() -> None:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         """,
-        
         # 2. Projects Table
         """
         CREATE TABLE IF NOT EXISTS projects (
@@ -28,7 +28,6 @@ def create_tables() -> None:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         """,
-        
         # 3. Tasks Table
         """
         CREATE TABLE IF NOT EXISTS tasks (
@@ -42,7 +41,6 @@ def create_tables() -> None:
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         );
         """,
-        
         # 4. Conversations Table
         """
         CREATE TABLE IF NOT EXISTS conversations (
@@ -53,7 +51,6 @@ def create_tables() -> None:
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
         );
         """,
-        
         # 5. Messages Table
         """
         CREATE TABLE IF NOT EXISTS messages (
@@ -65,7 +62,6 @@ def create_tables() -> None:
             FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
         );
         """,
-
         # 6a. Memory Categories (Blocks) Table
         """
         CREATE TABLE IF NOT EXISTS memory_categories (
@@ -74,7 +70,6 @@ def create_tables() -> None:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         """,
-        
         # 6b. Memories Table
         """
         CREATE TABLE IF NOT EXISTS memories (
@@ -86,7 +81,6 @@ def create_tables() -> None:
             FOREIGN KEY (category) REFERENCES memory_categories(category) ON DELETE CASCADE
         );
         """,
-        
         # 7 Model Usage Table
         """
         CREATE TABLE IF NOT EXISTS model_usage (
@@ -100,7 +94,6 @@ def create_tables() -> None:
             FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
         );
         """,
-        
         # 8. Tool Execution Logs Table
         """
         CREATE TABLE IF NOT EXISTS tool_logs (
@@ -115,7 +108,6 @@ def create_tables() -> None:
             FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
         );
         """,
-
         # 9. Summaries Table
         """
         CREATE TABLE IF NOT EXISTS summaries (
@@ -126,22 +118,22 @@ def create_tables() -> None:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
         );
-        """
+        """,
     ]
 
     try:
         # Obtain connection
         conn = get_connection()
-        
+
         # Use a transaction context. If any query fails, all changes are rolled back.
         with conn:
             for query in queries:
                 conn.execute(query)
-                
+
     except (sqlite3.Error, RuntimeError) as e:
         # Wrap database issues in a clean runtime exception for upper layers to handle
         raise RuntimeError(f"Database initialization failed: {e}") from e
     finally:
         # Ensure the connection is always closed, even on failure
-        if 'conn' in locals():
+        if "conn" in locals():
             conn.close()

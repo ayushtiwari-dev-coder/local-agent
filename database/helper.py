@@ -4,11 +4,13 @@ import threading
 import sqlite3
 from database.connection import get_connection
 
+
 class DatabaseWorker(threading.Thread):
     """
     Dedicated thread worker that handles ALL database reads and writes sequentially.
     Ensures that only a single thread accesses the SQLite file at any point.
     """
+
     def __init__(self):
         super().__init__(name="SQLiteDatabaseWorker", daemon=True)
         self.task_queue = queue.Queue()
@@ -28,7 +30,7 @@ class DatabaseWorker(threading.Thread):
             try:
 
                 conn = get_connection()
-                
+
                 if is_write:
                     with conn:  # Transaction wrapper
                         cursor = conn.execute(query, params)
@@ -44,10 +46,10 @@ class DatabaseWorker(threading.Thread):
                     else:
                         rows = cursor.fetchall()
                         result = [dict(row) for row in rows]
-                
+
                 conn.close()
                 conn = None
-                
+
                 reply_queue.put((result, None))
             except Exception as e:
                 if conn is not None:
@@ -64,7 +66,6 @@ class DatabaseWorker(threading.Thread):
         self._stop_event.set()
 
 
-
 _db_worker = DatabaseWorker()
 _db_worker.start()
 
@@ -72,31 +73,32 @@ _db_worker.start()
 def execute_read(query: str, params: tuple = (), fetch_one: bool = False) -> any:
     if not _db_worker.is_alive():
         raise RuntimeError("Database worker thread is not running.")
-        
+
     reply_queue = queue.Queue(maxsize=1)
     _db_worker.task_queue.put((query, params, fetch_one, False, reply_queue))
-    
+
     try:
         result, error = reply_queue.get(timeout=5.0)
     except queue.Empty:
         raise RuntimeError("Database read timed out.")
-        
+
     if error:
         raise error
     return result
 
+
 def execute_write(query: str, params: tuple = ()) -> int:
     if not _db_worker.is_alive():
         raise RuntimeError("Database worker thread is not running.")
-        
+
     reply_queue = queue.Queue(maxsize=1)
     _db_worker.task_queue.put((query, params, False, True, reply_queue))
-    
+
     try:
         result, error = reply_queue.get(timeout=5.0)
     except queue.Empty:
         raise RuntimeError("Database write timed out.")
-        
+
     if error:
         raise error
     return result

@@ -1,5 +1,6 @@
 from managers.memory_manager import save_semantic_memory, retrieve_semantic_memory
 
+
 def remember_user_preference(content: str, category: str) -> str:
     """
     Autonomously remembers a user preference, setting, configuration, or fact.
@@ -10,6 +11,7 @@ def remember_user_preference(content: str, category: str) -> str:
         return "Memory successfully stored and clustered."
     except Exception as e:
         return f"Error: Failed to store memory: {e}"
+
 
 def search_user_history(query: str, category: str) -> str:
     """

@@ -5,9 +5,12 @@ from queries.conversation_queries import create_conversation
 from queries.message_queries import create_message
 from queries.model_usage_queries import log_model_usage
 from queries.tool_log_queries import log_tool_execution
-import utils.config_manager as config_manager   
+import utils.config_manager as config_manager
 
-def start_new_conversation(user_id: int = None, title: str = "New Conversation") -> dict:
+
+def start_new_conversation(
+    user_id: int = None, title: str = "New Conversation"
+) -> dict:
     """
     Initializes a new conversation session in the database.
     """
@@ -21,13 +24,12 @@ def save_user_message(conversation_id: int, content: str) -> dict:
     clean_content = content.strip()
     if not clean_content:
         raise ValueError("Message content cannot be empty.")
-        
+
     return create_message(conversation_id, role="user", content=clean_content)
 
 
-
 def _estimate_tokens(messages: list[dict]) -> int:
-    
+
     try:
         # Get the standard local encoding used by modern models
         encoding = tiktoken.get_encoding("cl100k_base")
@@ -44,7 +46,7 @@ def _estimate_tokens(messages: list[dict]) -> int:
         else:
             # Safe character-based fallback if tiktoken is not loaded
             total_tokens += len(content) // 4
-            
+
     return total_tokens
 
 
@@ -57,7 +59,7 @@ def compile_llm_context(conversation_id: int, max_tokens: int = None) -> list[di
     if max_tokens is None:
         max_tokens = config_manager.get_max_context_tokens()
     context_messages = []
-    
+
     conn = None
     try:
         conn = get_connection()
@@ -69,18 +71,20 @@ def compile_llm_context(conversation_id: int, max_tokens: int = None) -> list[di
         """
         cursor = conn.execute(summary_query, (conversation_id,))
         summary_row = cursor.fetchone()
-        
+
         has_summary = False
         if summary_row:
             has_summary = True
             summary_text = summary_row["summary_text"]
             last_msg_id = summary_row["last_summarized_message_id"]
-            
-            context_messages.append({
-                "role": "system",
-                "content": f"Summary of previous conversation history: {summary_text}"
-            })
-            
+
+            context_messages.append(
+                {
+                    "role": "system",
+                    "content": f"Summary of previous conversation history: {summary_text}",
+                }
+            )
+
             # Fetch raw messages created after that summary
             messages_query = """
             SELECT role, content 
@@ -98,45 +102,47 @@ def compile_llm_context(conversation_id: int, max_tokens: int = None) -> list[di
             ORDER BY created_at ASC;
             """
             cursor = conn.execute(messages_query, (conversation_id,))
-            
+
         rows = cursor.fetchall()
         for row in rows:
-            context_messages.append({
-                "role": row["role"],
-                "content": row["content"]
-            })
-            
+            context_messages.append({"role": row["role"], "content": row["content"]})
+
         # 2. Sliding Window Trimming Logic
         # Calculate current estimated size
         current_estimated_tokens = _estimate_tokens(context_messages)
-        
 
         # If we are over budget, trim messages one-by-one
         while current_estimated_tokens > max_tokens and len(context_messages) > 1:
             trim_index = 1 if has_summary else 0
-            
+
             # Protect the first user message
-            if len(context_messages) > trim_index + 1 and context_messages[trim_index].get("role") == "user":
+            if (
+                len(context_messages) > trim_index + 1
+                and context_messages[trim_index].get("role") == "user"
+            ):
                 trim_index += 1
-                
+
             if trim_index >= len(context_messages):
                 break
-                
+
             removed_msg = context_messages.pop(trim_index)
-            
 
             if removed_msg.get("role") == "assistant" and "tool_calls" in removed_msg:
-                while len(context_messages) > trim_index and context_messages[trim_index].get("role") == "tool":
+                while (
+                    len(context_messages) > trim_index
+                    and context_messages[trim_index].get("role") == "tool"
+                ):
                     context_messages.pop(trim_index)
-                    
+
             current_estimated_tokens = _estimate_tokens(context_messages)
-            
+
         return context_messages
-        
+
     except sqlite3.Error as e:
         raise RuntimeError(f"Database error while compiling LLM context: {e}") from e
     finally:
         conn.close()
+
 
 def save_assistant_message(conversation_id: int, content: str) -> dict:
     """
@@ -145,21 +151,19 @@ def save_assistant_message(conversation_id: int, content: str) -> dict:
     clean_content = content.strip()
     if not clean_content:
         raise ValueError("Assistant response content cannot be empty.")
-        
+
     return create_message(conversation_id, role="assistant", content=clean_content)
 
 
-
 def log_api_usage(
-    conversation_id: int, 
-    model_name: str, 
-    prompt_tokens: int, 
-    completion_tokens: int
+    conversation_id: int, model_name: str, prompt_tokens: int, completion_tokens: int
 ) -> dict:
     """
     Records the token consumption of an LLM API call.
     """
-    return log_model_usage(conversation_id, model_name, prompt_tokens, completion_tokens)
+    return log_model_usage(
+        conversation_id, model_name, prompt_tokens, completion_tokens
+    )
 
 
 def log_tool_run(
@@ -168,7 +172,7 @@ def log_tool_run(
     arguments: str,
     status: str,
     output: str = None,
-    error_message: str = None
+    error_message: str = None,
 ) -> dict:
     """
     Logs the execution details and output of a system tool run.
@@ -179,5 +183,5 @@ def log_tool_run(
         arguments=arguments,
         status=status,
         output=output,
-        error_message=error_message
+        error_message=error_message,
     )

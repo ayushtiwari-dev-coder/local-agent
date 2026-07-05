@@ -3,6 +3,7 @@ import json
 from tools.registry import execute_tool
 from managers.conversation_manager import log_tool_run
 
+
 def _detect_tool_error(tool_name: str, tool_output: any) -> bool:
     """
     Determines if a tool execution failed.
@@ -45,7 +46,10 @@ def _extract_display_output(tool_output: any) -> any:
     instead of a raw Python dict repr. All other output shapes (read_files/
     write_files dicts, plain strings) pass through unchanged.
     """
-    if isinstance(tool_output, dict) and set(tool_output.keys()) == {"status", "output"}:
+    if isinstance(tool_output, dict) and set(tool_output.keys()) == {
+        "status",
+        "output",
+    }:
         return tool_output["output"]
     return tool_output
 
@@ -55,7 +59,7 @@ def determine_and_execute_tool(
     tool_args: dict,
     conversation_id: int,
     autonomous: bool,
-    approval_callback=None
+    approval_callback=None,
 ) -> tuple[str, str]:
     """
     Handles autonomous vs. supervised permission checks, executes the requested
@@ -64,16 +68,20 @@ def determine_and_execute_tool(
     # 1. Handle Supervised Permission Check
     if not autonomous:
         if approval_callback is None:
-            raise ValueError("Engine is in supervised mode, but no approval_callback was provided.")
+            raise ValueError(
+                "Engine is in supervised mode, but no approval_callback was provided."
+            )
         approved = approval_callback(tool_name, tool_args)
         if not approved:
-            tool_output = f"Error: Permission Denied. User refused execution of '{tool_name}'."
+            tool_output = (
+                f"Error: Permission Denied. User refused execution of '{tool_name}'."
+            )
             log_tool_run(
                 conversation_id,
                 tool_name,
                 json.dumps(tool_args),
                 "error",
-                error_message="User denied permission."
+                error_message="User denied permission.",
             )
             return tool_output, "error"
 
@@ -86,11 +94,7 @@ def determine_and_execute_tool(
 
     # 4. Log the Execution Details (raw structured output preserved in the DB)
     log_tool_run(
-        conversation_id,
-        tool_name,
-        json.dumps(tool_args),
-        status,
-        output=tool_output
+        conversation_id, tool_name, json.dumps(tool_args), status, output=tool_output
     )
 
     # 5. Return a clean display value to the caller (agent_engine.py), not the raw dict

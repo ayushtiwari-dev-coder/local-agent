@@ -1,6 +1,7 @@
 import sqlite3
 from database.helper import execute_read, execute_write
 
+
 def create_user(name: str, username: str) -> dict:
     """
     Inserts a new user into the users table.

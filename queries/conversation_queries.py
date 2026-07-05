@@ -1,6 +1,7 @@
 import sqlite3
 from database.helper import execute_read, execute_write
 
+
 def create_conversation(user_id: int = None, title: str = "New Conversation") -> dict:
     """
     Creates a new conversation record.

@@ -1,9 +1,10 @@
 from queries.user_queries import (
-    create_user, 
-    get_user_by_id, 
-    get_user_by_username, 
-    get_default_user
+    create_user,
+    get_user_by_id,
+    get_user_by_username,
+    get_default_user,
 )
+
 
 def get_active_user() -> dict | None:
     """
@@ -14,12 +15,14 @@ def get_active_user() -> dict | None:
 
 def register_user(name: str, username: str) -> dict:
     """
-    Registers a new user in the system after running strict length 
+    Registers a new user in the system after running strict length
     and character validation checks.
     """
     # Define our whitelist of allowed characters (alphanumeric + underscore + dash + semicolon)
-    allowed_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-;")
-    
+    allowed_chars = set(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-;"
+    )
+
     clean_name = name.strip()
     clean_username = username.strip().lower()
 
@@ -35,7 +38,7 @@ def register_user(name: str, username: str) -> dict:
             "Name contains invalid characters. Only letters, numbers, underscores, "
             "dashes, and semicolons are allowed. Spaces are not permitted."
         )
-        
+
     if not all(char in allowed_chars for char in clean_username):
         raise ValueError(
             "Username contains invalid characters. Only letters, numbers, underscores, "

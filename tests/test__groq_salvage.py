@@ -2,6 +2,7 @@
 import unittest
 from llm.providers.groq import salvage_groq_failed_generation
 
+
 class TestGroqSalvageParser(unittest.TestCase):
 
     def test_salvage_xml_wrapped_json(self):
@@ -11,7 +12,7 @@ class TestGroqSalvageParser(unittest.TestCase):
         <function=write_files>{"files_json": "{\\"path\\": \\"test.py\\", \\"content\\": \\"print(1)\\"}"}</function>
         """
         response = salvage_groq_failed_generation(broken_llama_output)
-        
+
         self.assertIsNotNone(response)
         # Verify it mocked the response correctly
         tool_call = response.choices[0].message.tool_calls[0]
@@ -26,7 +27,7 @@ class TestGroqSalvageParser(unittest.TestCase):
         line2'"}</function>
         """
         response = salvage_groq_failed_generation(broken_llama_output)
-        
+
         self.assertIsNotNone(response)
         tool_call = response.choices[0].message.tool_calls[0]
         # The salvager should have replaced the raw newline with a literal '\n'
@@ -38,7 +39,7 @@ class TestGroqSalvageParser(unittest.TestCase):
         <function=write_files>[{"path": "test.py", "content": "print(1)"}]</function>
         """
         response = salvage_groq_failed_generation(broken_llama_output)
-        
+
         self.assertIsNotNone(response)
         tool_call = response.choices[0].message.tool_calls[0]
         # The salvager should have wrapped the list in the {"files": ...} dictionary
@@ -49,6 +50,7 @@ class TestGroqSalvageParser(unittest.TestCase):
         garbage_output = "I don't know how to do that."
         response = salvage_groq_failed_generation(garbage_output)
         self.assertIsNone(response)
+
 
 if __name__ == "__main__":
     unittest.main()
