@@ -14,3 +14,6 @@ __pycache__/
 #dev files
 agent_con_8.txt
 database_test.py
+test.bat
+clean.bat
+migrate_db.py
