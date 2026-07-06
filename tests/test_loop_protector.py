@@ -1,172 +1,136 @@
 # tests/test_loop_protector.py
-import unittest
+import pytest
 import json
-
 from unittest.mock import patch
 from llm.loop_protector import check_for_infinite_loop
 
+@pytest.fixture
+def mock_tool_details():
+    """Initializes sample tool configurations."""
+    args = {"files_json": '[{"path": "test.py", "content": "print(1)"}]'}
+    return {
+        "name": "write_files",
+        "args": args,
+        "serialized_args": json.dumps(args, sort_keys=True)
+    }
 
-class TestLoopProtector(unittest.TestCase):
+def test_allow_initial_tool_call(mock_tool_details):
+    """Ensures a tool call is allowed to run on its first attempt."""
+    tool_call_history = []
+    is_looping, loop_error, _ = check_for_infinite_loop(
+        tool_call_history, mock_tool_details["name"], mock_tool_details["args"]
+    )
+    assert is_looping is False
+    assert loop_error is None
 
-    def setUp(self):
-        # Sample tool details
-        self.tool_name = "write_files"
-        self.tool_args = {"files_json": '[{"path": "test.py", "content": "print(1)"}]'}
-        self.serialized_args = json.dumps(self.tool_args, sort_keys=True)
-
-    def test_allow_initial_tool_call(self):
-        """Ensures a tool call is allowed to run on its first attempt."""
-        tool_call_history = []
-
-        is_looping, loop_error, _ = check_for_infinite_loop(
-            tool_call_history, self.tool_name, self.tool_args
-        )
-
-        self.assertFalse(is_looping)
-        self.assertIsNone(loop_error)
-
-    def test_block_identical_failed_call(self):
-        """Safety: Halts execution if a tool already failed 3 times with the exact same parameters."""
-        tool_call_history = [
-            {
-                "name": self.tool_name,
-                "args_json": self.serialized_args,
-                "status": "error",
-            },
-            {
-                "name": self.tool_name,
-                "args_json": self.serialized_args,
-                "status": "error",
-            },
-            {
-                "name": self.tool_name,
-                "args_json": self.serialized_args,
-                "status": "error",
-            },
-        ]
-
-        is_looping, loop_error, _ = check_for_infinite_loop(
-            tool_call_history, self.tool_name, self.tool_args
-        )
-
-        self.assertTrue(is_looping)
-        self.assertIn("already failed", loop_error)
-
-    def test_block_identical_successful_call(self):
-        """Safety: Halts execution if an agent repeatedly requests an already completed successful action 3 times."""
-        tool_call_history = [
-            {
-                "name": self.tool_name,
-                "args_json": self.serialized_args,
-                "status": "success",
-            },
-            {
-                "name": self.tool_name,
-                "args_json": self.serialized_args,
-                "status": "success",
-            },
-            {
-                "name": self.tool_name,
-                "args_json": self.serialized_args,
-                "status": "success",
-            },
-        ]
-
-        is_looping, loop_error, _ = check_for_infinite_loop(
-            tool_call_history, self.tool_name, self.tool_args
-        )
-
-        self.assertTrue(is_looping)
-        self.assertIn("already succeeded", loop_error)
-
-    def test_allow_different_arguments(self):
-        """Verification: Allows identical tools to run if the arguments are different."""
-        tool_call_history = [
-            {
-                "name": self.tool_name,
-                "args_json": self.serialized_args,
-                "status": "success",
-            }
-        ]
-
-        # New arguments (different content)
-        new_args = {"files_json": '[{"path": "test.py", "content": "print(2)"}]'}
-
-        is_looping, loop_error, _ = check_for_infinite_loop(
-            tool_call_history, self.tool_name, new_args
-        )
-
-        self.assertFalse(is_looping)
-        self.assertIsNone(loop_error)
-
-    @patch("utils.config_manager.get_loop_guard")
-    def test_loop_guard_dynamic_fallback(self, mock_get_loop_guard):
-        """
-        Ensures that if the user configured None, 0, or corrupted data in their config,
-        the loop protector automatically falls back to raw defaults (3 failures, 2 successes).
-        """
-        # Mock the config returning explicit Nones/Zeroes
-        mock_get_loop_guard.return_value = {
-            "max_failed_attempts": None,
-            "max_success_attempts": 0,
+def test_block_identical_failed_call(mock_tool_details):
+    """Safety: Halts execution if a tool already failed 3 times consecutively."""
+    tool_call_history = [
+        {
+            "name": mock_tool_details["name"],
+            "args_json": mock_tool_details["serialized_args"],
+            "status": "error",
         }
+    ] * 3
+    
+    is_looping, loop_error, _ = check_for_infinite_loop(
+        tool_call_history, mock_tool_details["name"], mock_tool_details["args"]
+    )
+    assert is_looping is True
+    assert "already failed" in loop_error
 
-        # --- Test Fallback for Failures (Default should be 3) ---
-        # 2 failures: Should NOT loop yet
-        history_2_fails = [
-            {
-                "name": self.tool_name,
-                "args_json": self.serialized_args,
-                "status": "error",
-            }
-        ] * 2
-        is_looping, loop_error, _ = check_for_infinite_loop(
-            history_2_fails, self.tool_name, self.tool_args
-        )
-        self.assertFalse(is_looping)
+def test_block_identical_successful_call(mock_tool_details):
+    """Safety: Halts execution if an agent repeatedly requests an already completed successful action."""
+    tool_call_history = [
+        {
+            "name": mock_tool_details["name"],
+            "args_json": mock_tool_details["serialized_args"],
+            "status": "success",
+        }
+    ] * 2
+    
+    is_looping, loop_error, _ = check_for_infinite_loop(
+        tool_call_history, mock_tool_details["name"], mock_tool_details["args"]
+    )
+    assert is_looping is True
+    assert "already succeeded" in loop_error
 
-        # 3 failures: MUST trigger the fallback loop guard
-        history_3_fails = [
-            {
-                "name": self.tool_name,
-                "args_json": self.serialized_args,
-                "status": "error",
-            }
-        ] * 3
-        is_looping, loop_error, _ = check_for_infinite_loop(
-            history_3_fails, self.tool_name, self.tool_args
-        )
-        self.assertTrue(is_looping)
-        self.assertIn("already failed consecutively", loop_error)
+def test_allow_different_arguments(mock_tool_details):
+    """Verification: Allows identical tools to run if the arguments are different."""
+    tool_call_history = [
+        {
+            "name": mock_tool_details["name"],
+            "args_json": mock_tool_details["serialized_args"],
+            "status": "success",
+        }
+    ]
+    new_args = {"files_json": '[{"path": "test.py", "content": "print(2)"}]'}
+    
+    is_looping, loop_error, _ = check_for_infinite_loop(
+        tool_call_history, mock_tool_details["name"], new_args
+    )
+    assert is_looping is False
+    assert loop_error is None
 
-        # --- Test Fallback for Successes (Default should be 2) ---
-        # 1 success: Should NOT loop yet
-        history_1_success = [
-            {
-                "name": self.tool_name,
-                "args_json": self.serialized_args,
-                "status": "success",
-            }
-        ]
-        is_looping, loop_error, _ = check_for_infinite_loop(
-            history_1_success, self.tool_name, self.tool_args
-        )
-        self.assertFalse(is_looping)
-
-        # 2 successes: MUST trigger the fallback loop guard
-        history_2_successes = [
-            {
-                "name": self.tool_name,
-                "args_json": self.serialized_args,
-                "status": "success",
-            }
-        ] * 2
-        is_looping, loop_error, _ = check_for_infinite_loop(
-            history_2_successes, self.tool_name, self.tool_args
-        )
-        self.assertTrue(is_looping)
-        self.assertIn("already succeeded consecutively", loop_error)
-
-
-if __name__ == "__main__":
-    unittest.main()
+@patch("utils.config_manager.get_loop_guard")
+def test_loop_guard_dynamic_fallback(mock_get_loop_guard, mock_tool_details):
+    """Ensures fallback to standard defaults if LoopGuard is zero or invalid in config."""
+    mock_get_loop_guard.return_value = {
+        "max_failed_attempts": None,
+        "max_success_attempts": 0,
+    }
+    
+    # 1. Fallback for Failures: 2 failures should not loop yet (Default is 3)
+    history_2_fails = [
+        {
+            "name": mock_tool_details["name"],
+            "args_json": mock_tool_details["serialized_args"],
+            "status": "error",
+        }
+    ] * 2
+    
+    is_looping, _, _ = check_for_infinite_loop(
+        history_2_fails, mock_tool_details["name"], mock_tool_details["args"]
+    )
+    assert is_looping is False
+    
+    # 2. 3 failures must trigger fallback guard
+    history_3_fails = [
+        {
+            "name": mock_tool_details["name"],
+            "args_json": mock_tool_details["serialized_args"],
+            "status": "error",
+        }
+    ] * 3
+    is_looping, loop_error, _ = check_for_infinite_loop(
+        history_3_fails, mock_tool_details["name"], mock_tool_details["args"]
+    )
+    assert is_looping is True
+    assert "already failed consecutively" in loop_error
+    
+    # 3. Fallback for Successes: 1 success should not loop yet (Default is 2)
+    history_1_success = [
+        {
+            "name": mock_tool_details["name"],
+            "args_json": mock_tool_details["serialized_args"],
+            "status": "success",
+        }
+    ]
+    is_looping, _, _ = check_for_infinite_loop(
+        history_1_success, mock_tool_details["name"], mock_tool_details["args"]
+    )
+    assert is_looping is False
+    
+    # 4. 2 successes must trigger fallback
+    history_2_successes = [
+        {
+            "name": mock_tool_details["name"],
+            "args_json": mock_tool_details["serialized_args"],
+            "status": "success",
+        }
+    ] * 2
+    is_looping, loop_error, _ = check_for_infinite_loop(
+        history_2_successes, mock_tool_details["name"], mock_tool_details["args"]
+    )
+    assert is_looping is True
+    assert "already succeeded consecutively" in loop_error

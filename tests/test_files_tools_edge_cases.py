@@ -1,75 +1,66 @@
-# FILE: tests/test_file_tools_edge_cases.py
-import unittest
+# tests/test_files_tools_edge_cases.py
+import pytest
 import os
 import tempfile
-from unittest.mock import patch
+from unittest.mock import patch, mock_open  # FIXED: Imported mock_open from standard library
 from tools.file_tools import read_files, write_files
 
+@pytest.fixture(autouse=True)
+def sandbox_workspace_fixture():
+    """Generates a sandboxed workspace directory for testing file read/writes."""
+    temp_sandbox = tempfile.TemporaryDirectory()
+    
+    # Patch config manager root
+    patcher = patch(
+        "tools.file_tools.config_manager.get_workspace_path",
+        return_value=temp_sandbox.name,
+    )
+    patcher.start()
+    
+    yield temp_sandbox
+    
+    patcher.stop()
+    temp_sandbox.cleanup()
 
-class TestFileToolsEdgeCases(unittest.TestCase):
-    def setUp(self):
-        # Create a safe temp directory to act as the sandbox for the test
-        self.temp_sandbox = tempfile.TemporaryDirectory()
-        # FIX: Patch the config manager getter instead of the deleted SANDBOX_ROOT
-        self.patcher = patch(
-            "tools.file_tools.config_manager.get_workspace_path",
-            return_value=self.temp_sandbox.name,
-        )
-        self.patcher.start()
+def test_invalid_json_inputs():
+    """Edge Case: Verify that passing an invalid type returns a proper type safety error."""
+    bad_json = '{"path": "file.txt" -- missing brackets'
+    res_read = read_files(bad_json)
+    
+    assert "error" in res_read
+    assert res_read["error"] == "Expected a list of paths."
 
-    def tearDown(self):
-        self.patcher.stop()
-        self.temp_sandbox.cleanup()
+def test_path_traversal_jailbreak():
+    """Security: Attempts to read or write to system paths outside workspace are blocked."""
+    hacker_payload = [{"path": "../../../../../etc/passwd", "content": "hacked"}]
+    res_write = write_files(hacker_payload)
+    
+    key = list(res_write.keys())[0]
+    assert "Error: Path" in res_write[key]
+    assert "is outside the allowed workspace" in res_write[key]
 
-    def test_invalid_json_inputs(self):
-        """Edge Case: Verify that passing a invalid type returns a proper type safety error."""
-        bad_json = '{"path": "file.txt" -- missing brackets'
-        res_read = read_files(bad_json)
-        self.assertIn("error", res_read)
-        self.assertEqual(res_read["error"], "Expected a list of paths.")
-
-    def test_path_traversal_jailbreak(self):
-        """Security: Attempts to read or write to system paths outside workspace."""
-        # Hacker payload is kept as a native Python list representation
-        hacker_payload = [{"path": "../../../../../etc/passwd", "content": "hacked"}]
-        res_write = write_files(hacker_payload)
-
-        # Should block and return error dictionary
-        key = list(res_write.keys())[0]
-        self.assertIn("Error: Path", res_write[key])
-        self.assertIn("is outside the allowed workspace", res_write[key])
-
-    def test_read_files_deduplication(self):
-        """Efficiency: Model requests the exact same file 3 times. Engine reads it only once."""
-        test_file = os.path.join(self.temp_sandbox.name, "dup.txt")
-        with open(test_file, "w") as f:
-            f.write("test_content")
-
-        # Payload is passed as a native Python list
-        payload = ["dup.txt", "dup.txt", "dup.txt"]
-        with patch(
-            "builtins.open", unittest.mock.mock_open(read_data="test_content")
-        ) as m:
-            res = read_files(payload)
-
-        self.assertEqual(len(res), 1)
+def test_read_files_deduplication(sandbox_workspace_fixture):
+    """Efficiency: Model requests the exact same file 3 times. Engine reads it only once."""
+    test_file = os.path.join(sandbox_workspace_fixture.name, "dup.txt")
+    with open(test_file, "w") as f:
+        f.write("test_content")
+        
+    payload = ["dup.txt", "dup.txt", "dup.txt"]
+    # FIXED: Replaced "pytest.mock_open" with standard library "mock_open"
+    with patch("builtins.open", mock_open(read_data="test_content")) as m:
+        res = read_files(payload)
+        assert len(res) == 1
         m.assert_called_once()
 
-    def test_write_files_deduplication(self):
-        """Efficiency: Model writes overlapping files. Only the last payload is saved."""
-        # Payload is passed as a native Python list of dictionaries
-        payload = [
-            {"path": "file1.txt", "content": "old_data"},
-            {"path": "file1.txt", "content": "latest_data"},
-        ]
-        res = write_files(payload)
-
-        # Read back to ensure only "latest_data" exists
-        written_file = os.path.join(self.temp_sandbox.name, "file1.txt")
-        with open(written_file, "r") as f:
-            data = f.read()
-        self.assertEqual(data, "latest_data")
-
-
-if __name__ == "__main__":
-    unittest.main()
+def test_write_files_deduplication(sandbox_workspace_fixture):
+    """Efficiency: Model writes overlapping files. Only the last payload is saved."""
+    payload = [
+        {"path": "file1.txt", "content": "old_data"},
+        {"path": "file1.txt", "content": "latest_data"},
+    ]
+    write_files(payload)
+    
+    written_file = os.path.join(sandbox_workspace_fixture.name, "file1.txt")
+    with open(written_file, "r") as f:
+        data = f.read()
+    assert data == "latest_data"
