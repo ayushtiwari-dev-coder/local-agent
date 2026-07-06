@@ -17,7 +17,7 @@ def migrate_memory_tables():
     finally:
         conn.close()
 
-    # Re-run your existing table generator to build the new schema
+
     create_tables()
     print("New semantic memory tables created successfully!")
 
