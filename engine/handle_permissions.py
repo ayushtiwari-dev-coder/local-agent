@@ -3,6 +3,7 @@ import json
 from tools.registry import execute_tool
 from managers.conversation_manager import log_tool_run
 
+UNSAFE_TOOLS = {"run_terminal_command"}
 
 def _detect_tool_error(tool_name: str, tool_output: any) -> bool:
     """
@@ -54,49 +55,43 @@ def _extract_display_output(tool_output: any) -> any:
     return tool_output
 
 
-def determine_and_execute_tool(
-    tool_name: str,
-    tool_args: dict,
-    conversation_id: int,
-    autonomous: bool,
-    approval_callback=None,
-) -> tuple[str, str]:
+def execute_and_format_tool(tool_name: str, tool_args: dict, conversation_id: int) -> tuple[str, str]:
     """
-    Handles autonomous vs. supervised permission checks, executes the requested
-    tool, and logs the execution output.
+    UNIFIED EXECUTION LAYER:
+    Runs the tool, checks for errors, logs to the database, and formats the output.
+    Does not care who calls it (Engine, Translator, etc.).
     """
-    # 1. Handle Supervised Permission Check
-    if not autonomous:
-        if approval_callback is None:
-            raise ValueError(
-                "Engine is in supervised mode, but no approval_callback was provided."
-            )
-        approved = approval_callback(tool_name, tool_args)
-        if not approved:
-            tool_output = (
-                f"Error: Permission Denied. User refused execution of '{tool_name}'."
-            )
-            log_tool_run(
-                conversation_id,
-                tool_name,
-                json.dumps(tool_args),
-                "error",
-                error_message="User denied permission.",
-            )
-            return tool_output, "error"
-
-    # 2. Execute the Tool
+    # 1. Execute the Tool
     tool_output = execute_tool(tool_name, tool_args, conversation_id)
 
-    # 3. Check for Errors in the Output (structured contract first, then legacy checks)
+    # 2. Check for Errors
     has_error = _detect_tool_error(tool_name, tool_output)
     status = "error" if has_error else "success"
 
-    # 4. Log the Execution Details (raw structured output preserved in the DB)
+    # 3. Log the Execution Details
     log_tool_run(
         conversation_id, tool_name, json.dumps(tool_args), status, output=tool_output
     )
 
-    # 5. Return a clean display value to the caller (agent_engine.py), not the raw dict
+    # 4. Return clean display value
     display_output = _extract_display_output(tool_output)
     return display_output, status
+
+
+def determine_and_execute_tool(
+    tool_name: str,
+    tool_args: dict,
+    conversation_id: int,
+    autonomous: bool
+) -> tuple[str, str]:
+    """
+    Checks if a tool needs approval. 
+    If safe, passes it to the unified execution layer.
+    If unsafe, returns a REQUIRES_APPROVAL state for the engine to route.
+    """
+    # 1. Check if it needs approval (The Trigger)
+    if not autonomous and tool_name in UNSAFE_TOOLS:
+        return json.dumps(tool_args), "REQUIRES_APPROVAL"
+
+    # 2. Safe to run directly -> Pass to Unified Execution Layer
+    return execute_and_format_tool(tool_name, tool_args, conversation_id)

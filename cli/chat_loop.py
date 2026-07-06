@@ -18,6 +18,7 @@ from queries.tool_log_queries import get_tool_logs_by_conversation
 from queries.memory_queries import search_memories
 from queries.conversation_queries import delete_conversation
 import utils.config_manager as config_manager
+from cli.translator import cli_translator_layer
 
 console = Console()
 
@@ -296,7 +297,7 @@ def enter_chat_session(conversation_id: int) -> None:
             response_text = engine.send_message(
                 conversation_id=conversation_id,
                 user_text=user_input,
-                approval_callback=cli_tool_approval_callback,
+                translator_layer=cli_translator_layer,
                 status_callback=cli_status_callback,
             )
             print(f"\n Assistant: {response_text}\n")

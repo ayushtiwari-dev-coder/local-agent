@@ -50,11 +50,11 @@ class AgentEngine:
         self,
         conversation_id: int,
         user_text: str,
-        approval_callback=None,
+        translator_layer=None,  # <-- Replaced approval_callback
         status_callback=None,
     ) -> str:
         """Executes the ReAct loop using the abstract LLM provider."""
-
+        
         save_user_message(conversation_id, user_text)
 
         # compile_llm_context returns standard dicts: [{"role": "user", "content": "hi"}]
@@ -118,13 +118,22 @@ class AgentEngine:
                             f"Executing tool '{tool_name}' with arguments:\n{tool_args}"
                         )
 
+                    
+                    # 1. Call determine_and_execute_tool
                     tool_output, status = determine_and_execute_tool(
                         tool_name,
                         tool_args,
                         conversation_id,
-                        self.autonomous,
-                        approval_callback,
+                        self.autonomous
                     )
+
+                    # 2. Pass to Translator if approval is required
+                    if status == "REQUIRES_APPROVAL":
+                        if translator_layer:
+                            tool_output, status = translator_layer(tool_name, tool_args, conversation_id)
+                        else:
+                            tool_output = f"Error: Tool '{tool_name}' requires approval, but no translator layer is connected."
+                            status = "error"
 
                     # Emit tool completion status
                     if status_callback:
