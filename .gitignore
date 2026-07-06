@@ -10,6 +10,7 @@ assistant.db-wal
 # Python caching
 __pycache__/
 *.pyc
+.pytest_cache/
 
 #dev files
 agent_con_8.txt
