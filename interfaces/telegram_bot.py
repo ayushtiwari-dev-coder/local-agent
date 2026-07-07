@@ -57,7 +57,7 @@ def agent_worker_thread(chat_id: int, user_text: str):
     # Callback to send messages back to Telegram
     def telegram_send_message(c_id, text):
         # If the text asks for approval, attach Yes/No buttons
-        if "⚠️ *Action Required*" in text:
+        if "🚨 *Action Required*" in text:
             markup = InlineKeyboardMarkup()
             markup.row(
                 InlineKeyboardButton("✅ Approve", callback_data=f"approve_{c_id}"),
