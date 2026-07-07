@@ -4,7 +4,7 @@ from database.connection import APP_DIR
 
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 
-# Non-coder friendly default template
+# Default template updated with the new multitasking and resource thresholds
 DEFAULT_CONFIG = {
     "user_profile": {
         "name": None,
@@ -35,12 +35,18 @@ DEFAULT_CONFIG = {
             "cpu_limit": 1000000000,
             "timeout_seconds": 15,
             "docker_image": "python:3.11-slim",
-            "workspace_path": "`/.local_workflow_agent/workspace`",
+            "workspace_path": "~/.local_workflow_agent/workspace",
+            "max_active_containers": 3,
+            "max_total_containers": 10,
+            "container_idle_timeout_minutes": 30.0,
+        },
+        "telegram": {
+            "bot_token": None,
+            "allowed_user_ids": [],
         },
         "cli": {"log_truncation_limit": 500},
     },
 }
-
 
 def load_config() -> dict:
     if not os.path.exists(CONFIG_PATH):
@@ -48,17 +54,16 @@ def load_config() -> dict:
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             user_config = json.load(f)
-            # Deep merge to guarantee structure compatibility
-            merged = DEFAULT_CONFIG.copy()
-            for k, v in user_config.items():
-                if isinstance(v, dict) and k in merged:
-                    merged[k].update(v)
-                else:
-                    merged[k] = v
-            return merged
+        # Deep merge to guarantee structure compatibility
+        merged = DEFAULT_CONFIG.copy()
+        for k, v in user_config.items():
+            if isinstance(v, dict) and k in merged:
+                merged[k].update(v)
+            else:
+                merged[k] = v
+        return merged
     except Exception:
         return DEFAULT_CONFIG
-
 
 def save_config(config: dict) -> None:
     try:

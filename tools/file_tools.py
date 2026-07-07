@@ -1,10 +1,9 @@
 import os
 import json
 import subprocess
-from tools.sandbox_executor import DockerSandboxExecutor
 import logging
 import utils.config_manager as config_manager
-
+from tools.sandbox_executor import LocalSandboxExecutor
 logger = logging.getLogger("tools.file_tools")
 
 SANDBOX_ROOT = os.path.abspath(
@@ -105,9 +104,21 @@ def write_files(files: list[dict]) -> dict:
     return results
 
 
-_sandbox = DockerSandboxExecutor(get_sandbox_root())
+ #ACTIVE EXECUTOR (RAM-Free Local Host Mode)
+_sandbox = LocalSandboxExecutor(get_sandbox_root())
 
+# =====================================================================
+# FUTURE DOCKER ACTIVATION INSTRUCTIONS:
+# If you eventually install Docker Desktop and want to activate containment,
+# restore Docker files from optional_docker_extension/ and uncomment below:
+#
+# from tools.sandbox_executor import DockerSandboxExecutor
+# _sandbox = DockerSandboxExecutor(get_sandbox_root())
+# =====================================================================
 
 def run_terminal_command(command: str) -> dict:
-    # Delegate execution entirely to your secure Sandbox Executor
+    """
+    Executes a shell command natively inside the safe local workspace directory.
+    Use this to run Python scripts, install packages, or interact with the file system.
+    """
     return _sandbox.run_command(command)

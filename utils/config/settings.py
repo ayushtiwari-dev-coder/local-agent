@@ -23,26 +23,6 @@ def set_max_turns(turns: int) -> None:
     save_config(config)
 
 
-def get_sandbox_settings() -> dict:
-    """Timeout limits and hardware allocation limits for Docker sandboxing."""
-    config = load_config()
-    return config["settings"].get(
-        "sandbox",
-        {"memory_limit": "512m", "cpu_limit": 1000000000, "timeout_seconds": 15},
-    )
-
-
-def set_sandbox_settings(
-    memory_limit: str, cpu_limit: int, timeout_seconds: int
-) -> None:
-    config = load_config()
-    config["settings"]["sandbox"] = {
-        "memory_limit": str(memory_limit),
-        "cpu_limit": max(100000, int(cpu_limit)),
-        "timeout_seconds": max(1, int(timeout_seconds)),
-    }
-    save_config(config)
-
 
 def get_max_context_tokens() -> int:
     """Gets the sliding window maximum token threshold for history trimming."""
@@ -79,10 +59,6 @@ def set_cli_log_truncation_limit(limit: int) -> None:
         config["cli"] = {}
     config["cli"]["log_truncation_limit"] = max(10, int(limit))
     save_config(config)
-
-
-# utils/config/settings.py (Add to bottom)
-
 
 def get_memory_similarity_threshold() -> float:
     """Minimum cosine similarity required to group a memory into an existing block."""
@@ -168,15 +144,92 @@ def set_workspace_path(path: str) -> None:
     save_config(config)
 
 
-def get_docker_image() -> str:
-    return (
-        load_config()["settings"]
-        .get("sandbox", {})
-        .get("docker_image", "python:3.11-slim")
-    )
-
-
-def set_docker_image(image: str) -> None:
+def get_telegram_config() -> dict:
     config = load_config()
-    config["settings"]["sandbox"]["docker_image"] = image.strip()
+    return config.get("telegram", {"bot_token": None, "allowed_user_ids": []})
+
+
+def set_telegram_config(bot_token: str, allowed_user_ids: list) -> None:
+    config = load_config()
+    if "telegram" not in config:
+        config["telegram"] = {}
+    config["telegram"]["bot_token"] = bot_token.strip() if bot_token else None
+    config["telegram"]["allowed_user_ids"] = [
+        int(uid) for uid in allowed_user_ids if str(uid).isdigit()
+    ]
     save_config(config)
+# Add to the bottom of utils/config/settings.py
+
+# def get_max_active_containers() -> int:
+#     """Gets the user-defined maximum limit for concurrently running containers."""
+#     config = load_config()
+#     return int(config["settings"].get("sandbox", {}).get("max_active_containers", 3))
+
+# def set_max_active_containers(count: int) -> None:
+#     """Sets the user-defined maximum limit for concurrently running containers."""
+#     config = load_config()
+#     if "sandbox" not in config["settings"]:
+#         config["settings"]["sandbox"] = {}
+#     config["settings"]["sandbox"]["max_active_containers"] = max(1, int(count))
+#     save_config(config)
+
+# def get_max_total_containers() -> int:
+#     """Gets the user-defined maximum sandbox containers retained on host disk."""
+#     config = load_config()
+#     return int(config["settings"].get("sandbox", {}).get("max_total_containers", 10))
+
+# def set_max_total_containers(count: int) -> None:
+#     """Sets the user-defined maximum sandbox containers retained on host disk."""
+#     config = load_config()
+#     if "sandbox" not in config["settings"]:
+#         config["settings"]["sandbox"] = {}
+#     # Keep total ceiling at least equal to or greater than active limit
+#     config["settings"]["sandbox"]["max_total_containers"] = max(1, int(count))
+#     save_config(config)
+
+# def get_container_idle_timeout() -> float:
+#     """Gets the idle timeout (in minutes) after which inactive containers are stopped."""
+#     config = load_config()
+#     return float(config["settings"].get("sandbox", {}).get("container_idle_timeout_minutes", 30.0))
+
+# def set_container_idle_timeout(minutes: float) -> None:
+#     """Sets the idle timeout (in minutes) after which inactive containers are stopped."""
+#     config = load_config()
+#     if "sandbox" not in config["settings"]:
+#         config["settings"]["sandbox"] = {}
+#     config["settings"]["sandbox"]["container_idle_timeout_minutes"] = max(0.1, float(minutes))
+#     save_config(config)
+
+# def get_docker_image() -> str:
+#     return (
+#         load_config()["settings"]
+#         .get("sandbox", {})
+#         .get("docker_image", "python:3.11-slim")
+#     )
+
+
+# def set_docker_image(image: str) -> None:
+#     config = load_config()
+#     config["settings"]["sandbox"]["docker_image"] = image.strip()
+#     save_config(config)
+
+
+# def get_sandbox_settings() -> dict:
+#     """Timeout limits and hardware allocation limits for Docker sandboxing."""
+#     config = load_config()
+#     return config["settings"].get(
+#         "sandbox",
+#         {"memory_limit": "512m", "cpu_limit": 1000000000, "timeout_seconds": 15},
+#     )
+
+
+# def set_sandbox_settings(
+#     memory_limit: str, cpu_limit: int, timeout_seconds: int
+# ) -> None:
+#     config = load_config()
+#     config["settings"]["sandbox"] = {
+#         "memory_limit": str(memory_limit),
+#         "cpu_limit": max(100000, int(cpu_limit)),
+#         "timeout_seconds": max(1, int(timeout_seconds)),
+#     }
+#     save_config(config)

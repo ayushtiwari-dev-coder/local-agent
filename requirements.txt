@@ -1,0 +1,7 @@
+pyTelegramBotAPI
+google-genai
+groq
+rich
+tiktoken
+python-dotenv
+pytest

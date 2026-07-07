@@ -3,9 +3,10 @@ import pytest
 import json
 from unittest.mock import patch
 from engine.handle_permissions import (
-    _detect_tool_error, determine_and_execute_tool, execute_and_format_tool
+    _detect_tool_error,
+    determine_and_execute_tool,
+    execute_and_format_tool,
 )
-
 
 
 @patch("engine.handle_permissions.execute_and_format_tool")
@@ -19,6 +20,7 @@ def test_determine_safe_tool_bypasses_translator(mock_execute):
     assert output == "File contents"
     mock_execute.assert_called_once()
 
+
 @patch("engine.handle_permissions.execute_and_format_tool")
 def test_determine_unsafe_tool_triggers_approval(mock_execute):
     """Unsafe tools MUST halt execution and return REQUIRES_APPROVAL state."""
@@ -29,6 +31,7 @@ def test_determine_unsafe_tool_triggers_approval(mock_execute):
     assert status == "REQUIRES_APPROVAL"
     assert output == json.dumps(args)
     mock_execute.assert_not_called()
+
 
 @patch("engine.handle_permissions.execute_and_format_tool")
 def test_autonomous_mode_bypasses_approval(mock_execute):
@@ -41,12 +44,12 @@ def test_autonomous_mode_bypasses_approval(mock_execute):
     mock_execute.assert_called_once()
 
 
-
 def test_structured_contract_success():
     """Ensures standard dictionary success is parsed correctly."""
     output = {"status": "success", "output": "Command ran fine."}
     has_error = _detect_tool_error("run_terminal_command", output)
     assert has_error is False
+
 
 def test_structured_contract_error():
     """Ensures standard dictionary errors are caught."""
@@ -54,11 +57,13 @@ def test_structured_contract_error():
     has_error = _detect_tool_error("run_terminal_command", output)
     assert has_error is True
 
+
 def test_legacy_string_error():
     """Ensures flat strings starting with 'Error:' are caught (used by memory tools)."""
     output = "Error: Failed to store memory due to database lock."
     has_error = _detect_tool_error("remember_user_preference", output)
     assert has_error is True
+
 
 def test_legacy_string_success():
     """Ensures normal flat strings are treated as success."""

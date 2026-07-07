@@ -49,3 +49,14 @@ def delete_conversation(conversation_id: int) -> None:
     rows_affected = execute_write(query, (conversation_id,))
     if rows_affected == 0:
         raise ValueError(f"Conversation with ID {conversation_id} not found.")
+
+def get_latest_conversation_by_title(title: str) -> dict | None:
+    """Retrieves the most recent conversation matching a given title (even if user_id is NULL)."""
+    query = """
+    SELECT id, user_id, title, created_at 
+    FROM conversations 
+    WHERE title = ? 
+    ORDER BY id DESC 
+    LIMIT 1;
+    """
+    return execute_read(query, (title,), fetch_one=True)
