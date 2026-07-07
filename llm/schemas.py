@@ -10,7 +10,6 @@ class ToolCall:
     args: Dict[str, Any]
     id: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
-
 @dataclass
 class LLMResponse:
     """Standardized output returned by any LLM Provider."""
