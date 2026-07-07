@@ -34,6 +34,8 @@ from utils.config.settings import (
     set_workspace_path,
     get_docker_image,
     set_docker_image,
+    get_telegram_config,
+    set_telegram_config,
 )
 from utils.config.user import (
     get_user_profile,

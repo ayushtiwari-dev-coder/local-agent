@@ -5,12 +5,38 @@ import shlex
 
 # 1. STRICT WHITELIST: Only these base commands are allowed to even reach the user prompt.
 ALLOWED_COMMANDS = {
-    "python", "python3", "pip", "pip3",
-    "node", "npm", "npx", "yarn",
-    "ls", "cd", "pwd", "cat", "echo", "grep", "find",
-    "mkdir", "touch", "cp", "mv", "rm", "tree", "head", "tail",
-    "git", "pytest", "bash", "sh", "apt", "apt-get", "apk"
+    "python",
+    "python3",
+    "pip",
+    "pip3",
+    "node",
+    "npm",
+    "npx",
+    "yarn",
+    "ls",
+    "cd",
+    "pwd",
+    "cat",
+    "echo",
+    "grep",
+    "find",
+    "mkdir",
+    "touch",
+    "cp",
+    "mv",
+    "rm",
+    "tree",
+    "head",
+    "tail",
+    "git",
+    "pytest",
+    "bash",
+    "sh",
+    "apt",
+    "apt-get",
+    "apk",
 }
+
 
 def check_command_safety(command: str) -> tuple[bool, str | None]:
     """
@@ -45,13 +71,19 @@ def check_command_safety(command: str) -> tuple[bool, str | None]:
             base_cmd_name = base_cmd.split("/")[-1]
 
             if base_cmd_name not in ALLOWED_COMMANDS:
-                return False, f"Command '{base_cmd_name}' is not in the allowed whitelist."
+                return (
+                    False,
+                    f"Command '{base_cmd_name}' is not in the allowed whitelist.",
+                )
 
             # 3. Additional strict checks for specific commands (e.g., rm)
             if base_cmd_name == "rm":
                 if any(arg in tokens for arg in ["-rf", "-r", "-f", "-R"]):
                     if "/" in tokens or "/*" in tokens or "~" in tokens:
-                        return False, "Destructive 'rm' command detected on critical path."
+                        return (
+                            False,
+                            "Destructive 'rm' command detected on critical path.",
+                        )
 
         except ValueError as e:
             return False, f"Malformed command syntax (e.g., unclosed quotes): {e}"

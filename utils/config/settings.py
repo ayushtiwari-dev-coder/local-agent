@@ -180,3 +180,19 @@ def set_docker_image(image: str) -> None:
     config = load_config()
     config["settings"]["sandbox"]["docker_image"] = image.strip()
     save_config(config)
+
+
+def get_telegram_config() -> dict:
+    config = load_config()
+    return config.get("telegram", {"bot_token": None, "allowed_user_ids": []})
+
+
+def set_telegram_config(bot_token: str, allowed_user_ids: list) -> None:
+    config = load_config()
+    if "telegram" not in config:
+        config["telegram"] = {}
+    config["telegram"]["bot_token"] = bot_token.strip() if bot_token else None
+    config["telegram"]["allowed_user_ids"] = [
+        int(uid) for uid in allowed_user_ids if str(uid).isdigit()
+    ]
+    save_config(config)

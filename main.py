@@ -1,5 +1,6 @@
 # main.py
 import sys
+import argparse
 
 # Enforce UTF-8 safely to avoid local system terminal encoding crashes
 if sys.stdout.encoding != "utf-8":
@@ -17,8 +18,33 @@ from database.table_generator import create_tables
 from cli.menu_flows import run_main_app_loop
 
 
-def run_assistant_cli() -> None:
-    """Boots the local assistant backend systems and enters the main loop."""
+def start_cli():
+    """Boots the standard Terminal CLI interface."""
+    run_main_app_loop()
+
+
+def start_telegram():
+    """Boots the Telegram Long-Polling Bot."""
+    try:
+        from interfaces.telegram_bot import run_telegram_bot
+
+        run_telegram_bot()
+    except ImportError as e:
+        print(
+            f"\n[Error] Failed to load Telegram bot. Did you install pyTelegramBotAPI?"
+        )
+        print(f"Details: {e}")
+        sys.exit(1)
+
+
+def start_web():
+    """Placeholder for the future React/FastAPI backend."""
+    print("\n[Notice] Web/React interface is not yet implemented. Coming soon!")
+    sys.exit(0)
+
+
+def main():
+    """Main Entrypoint Router for the Local Workflow Agent."""
     print("Initializing local assistant database...")
     try:
         create_tables()
@@ -26,9 +52,54 @@ def run_assistant_cli() -> None:
         print(f"Fatal: Database setup failed: {e}")
         sys.exit(1)
 
-    # Launch main application menu flow
-    run_main_app_loop()
+    # 1. Parse Command Line Arguments (For automated background running)
+    parser = argparse.ArgumentParser(description="Launch the Local AI Agent")
+    parser.add_argument(
+        "--mode",
+        choices=["cli", "telegram", "web"],
+        help="Bypass the menu and directly launch a specific interface.",
+    )
+    args = parser.parse_args()
+
+    # If an argument was passed, route directly to it
+    if args.mode == "cli":
+        start_cli()
+        return
+    elif args.mode == "telegram":
+        start_telegram()
+        return
+    elif args.mode == "web":
+        start_web()
+        return
+
+    # 2. Interactive Startup Menu (If no arguments were passed)
+    while True:
+        print("\n" + "=" * 60)
+        print("🤖 LOCAL WORKFLOW AGENT - STARTUP MENU")
+        print("=" * 60)
+        print(" [1] Standard CLI (Terminal)")
+        print(" [2] Telegram Bot (Remote Access)")
+        print(" [3] Web UI (React - Coming Soon)")
+        print(" [4] Exit")
+        print("=" * 60)
+
+        choice = input(" Select interface (1-4): ").strip()
+
+        if choice == "1":
+            start_cli()
+            break
+        elif choice == "2":
+            start_telegram()
+            break
+        elif choice == "3":
+            start_web()
+            break
+        elif choice == "4" or choice.lower() in ["exit", "quit"]:
+            print("Exiting...")
+            sys.exit(0)
+        else:
+            print(" Invalid selection. Please choose 1, 2, 3, or 4.")
 
 
 if __name__ == "__main__":
-    run_assistant_cli()
+    main()

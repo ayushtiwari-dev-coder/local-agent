@@ -5,6 +5,7 @@ from managers.conversation_manager import log_tool_run
 
 UNSAFE_TOOLS = {"run_terminal_command"}
 
+
 def _detect_tool_error(tool_name: str, tool_output: any) -> bool:
     """
     Determines if a tool execution failed.
@@ -55,7 +56,9 @@ def _extract_display_output(tool_output: any) -> any:
     return tool_output
 
 
-def execute_and_format_tool(tool_name: str, tool_args: dict, conversation_id: int) -> tuple[str, str]:
+def execute_and_format_tool(
+    tool_name: str, tool_args: dict, conversation_id: int
+) -> tuple[str, str]:
     """
     UNIFIED EXECUTION LAYER:
     Runs the tool, checks for errors, logs to the database, and formats the output.
@@ -79,13 +82,10 @@ def execute_and_format_tool(tool_name: str, tool_args: dict, conversation_id: in
 
 
 def determine_and_execute_tool(
-    tool_name: str,
-    tool_args: dict,
-    conversation_id: int,
-    autonomous: bool
+    tool_name: str, tool_args: dict, conversation_id: int, autonomous: bool
 ) -> tuple[str, str]:
     """
-    Checks if a tool needs approval. 
+    Checks if a tool needs approval.
     If safe, passes it to the unified execution layer.
     If unsafe, returns a REQUIRES_APPROVAL state for the engine to route.
     """

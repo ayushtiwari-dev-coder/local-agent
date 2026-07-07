@@ -37,6 +37,10 @@ DEFAULT_CONFIG = {
             "docker_image": "python:3.11-slim",
             "workspace_path": "`/.local_workflow_agent/workspace`",
         },
+        "telegram": {
+            "bot_token": None,
+            "allowed_user_ids": [],
+        },
         "cli": {"log_truncation_limit": 500},
     },
 }
