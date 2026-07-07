@@ -1,4 +1,5 @@
 # cli/chat_loop.py
+
 import json
 import textwrap
 from rich.console import Console
@@ -15,18 +16,15 @@ from engine.agent_engine import AgentEngine
 from engine.thinking_configure import supports_thinking
 from queries.message_queries import get_messages_by_conversation
 from queries.tool_log_queries import get_tool_logs_by_conversation
-from queries.memory_queries import search_memories
-from queries.conversation_queries import delete_conversation
 import utils.config_manager as config_manager
 from cli.translator import cli_translator_layer
+import config_configure.in_chat_config as in_chat_config
 
 console = Console()
-
 
 def render_conversation_history(conversation_id: int) -> None:
     """Reprints the chronological dialog transcript."""
     from cli.constants import ROLE_ICONS
-
     messages = get_messages_by_conversation(conversation_id)
     tool_logs = get_tool_logs_by_conversation(conversation_id)
     timeline = []
@@ -35,6 +33,7 @@ def render_conversation_history(conversation_id: int) -> None:
         timeline.append((m["created_at"], m["id"], "message", m))
     for t in tool_logs:
         timeline.append((t["created_at"], t["id"], "tool", t))
+    
     timeline.sort(key=lambda row: (row[0], row[1]))
 
     print(SEPARATOR)
@@ -59,18 +58,15 @@ def render_conversation_history(conversation_id: int) -> None:
                 )
             )
         else:
-            status_icon = "✓" if row["status"] == "success" else "✗"
-            print(
-                f"\n  {status_icon} Tool Run: {row['tool_name']} [{row['created_at']}]"
-            )
-            print(f"  args: {row['arguments']}")
+            status_icon = "✅" if row["status"] == "success" else "❌"
+            print(f"\n  {status_icon} Tool Run: {row['tool_name']} [{row['created_at']}]")
+            print(f"    args: {row['arguments']}")
             if row.get("output"):
-                print(f"  output: {row['output']}")
+                print(f"    output: {row['output']}")
             if row.get("error_message"):
-                print(f"  error: {row['error_message']}")
+                print(f"    error: {row['error_message']}")
     print()
     print(SEPARATOR)
-
 
 def show_tool_calls_only(conversation_id: int) -> None:
     """Prints tool metrics and logs alone."""
@@ -78,30 +74,35 @@ def show_tool_calls_only(conversation_id: int) -> None:
     print(SEPARATOR)
     print(f" Tool Calls for Conversation {conversation_id}")
     print(SEPARATOR)
+    
     if not tool_logs:
         print(" (No tools have been run in this conversation yet.)")
         return
+        
     for t in tool_logs:
-        status_icon = "✓" if t["status"] == "success" else "✗"
+        status_icon = "✅" if t["status"] == "success" else "❌"
         print(f"\n{status_icon} {t['tool_name']} [{t['created_at']}]")
-        print(f"  args: {t['arguments']}")
+        print(f"    args: {t['arguments']}")
         if t.get("output"):
-            print(f"  output: {t['output']}")
+            print(f"    output: {t['output']}")
         if t.get("error_message"):
-            print(f"  error: {t['error_message']}")
+            print(f"    error: {t['error_message']}")
     print()
     print(SEPARATOR)
-
 
 def search_memories_flow() -> None:
     """Conducts keyword-based searches and displays results."""
     query = input("\nEnter keyword search term to query memories: ").strip()
-    if not query:
+    res = in_chat_config.search_semantic_memories(query)
+    
+    if res["status"] == "error":
         return
-    results = search_memories(query)
+        
+    results = res["data"]
     if not results:
         console.print("[yellow]No matching database memories found.[/yellow]")
         return
+
     table = Table(
         title=f"Memory Search Results for '{query}'",
         show_header=True,
@@ -110,13 +111,13 @@ def search_memories_flow() -> None:
     table.add_column("Category", style="green", width=15)
     table.add_column("Memory Details", style="white")
     table.add_column("Logged Date", style="dim", width=15)
+
     for row in results:
         category = row.get("category", "general").upper()
         content = row.get("content", "")
         created = row.get("created_at", "")[:10]
         table.add_row(category, content, created)
     console.print(table)
-
 
 def enter_chat_session(conversation_id: int) -> None:
     """The central in-chat interactive shell parsing prompt commands."""
@@ -135,9 +136,7 @@ def enter_chat_session(conversation_id: int) -> None:
         print(f"Initialization Error: {e}")
         return
 
-    print(
-        f"\n=== You're in conversation {conversation_id}. Type 'help' for commands. ===\n"
-    )
+    print(f"\n=== You're in conversation {conversation_id}. Type 'help' for commands. ===\n")
     render_conversation_history(conversation_id)
 
     while True:
@@ -165,26 +164,20 @@ def enter_chat_session(conversation_id: int) -> None:
                 search_memories_flow()
                 continue
             elif lowered == "/delete":
-                confirm = (
-                    input("Delete current session and exit back to menu? (y/n): ")
-                    .strip()
-                    .lower()
-                )
+                confirm = input("Delete current session and exit back to menu? (y/n): ").strip().lower()
                 if confirm == "y":
-                    delete_conversation(conversation_id)
-                    print("Conversation deleted successfully.")
-                    break
+                    res = in_chat_config.delete_active_conversation(conversation_id)
+                    print(res["message"])
+                    if res["status"] == "success":
+                        break
                 continue
-
             elif lowered == "/models":
                 print(SEPARATOR)
                 print(" Model & Parameter Controller")
                 print(" [1] Switch Active Model / Provider")
-                print(
-                    f" [2] Set Model Temperature (Current: {config_manager.get_temperature()})"
-                )
+                print(f" [2] Set Model Temperature (Current: {config_manager.get_temperature()})")
                 print(SEPARATOR)
-
+                
                 sub_choice = input(" Choose option (1-2): ").strip()
                 if sub_choice == "1":
                     print(SEPARATOR)
@@ -195,9 +188,7 @@ def enter_chat_session(conversation_id: int) -> None:
                     print(SEPARATOR)
 
                     choice = input(" Choose Provider (1-2): ").strip()
-                    if choice.isdigit() and 1 <= int(choice) <= len(
-                        available_providers
-                    ):
+                    if choice.isdigit() and 1 <= int(choice) <= len(available_providers):
                         provider_choice = available_providers[int(choice) - 1]
                         models = SUPPORTED_MODELS[provider_choice]
                         print(SEPARATOR)
@@ -209,87 +200,50 @@ def enter_chat_session(conversation_id: int) -> None:
                         pick = input(f" Select model (1-{len(models)}): ").strip()
                         if pick.isdigit() and 1 <= int(pick) <= len(models):
                             model_choice = models[int(pick) - 1]["model"]
-                            config_manager.set_active_model(
-                                provider_choice, model_choice
-                            )
-                            config_manager.set_default_provider(provider_choice)
-                            resolved_key = config_manager.get_provider_api_key(
-                                provider_choice
-                            )
-
-                            print("\nRe-booting Assistant with new model...")
-                            engine = AgentEngine(
-                                provider_name=provider_choice,
-                                model_name=model_choice,
-                                api_key=resolved_key,
-                                autonomous=False,
-                            )
-                            print(
-                                f"Assistant is now running: [{provider_choice.upper()}] - {model_choice}\n"
-                            )
-
-                elif sub_choice == "2":
-                    if (
-                        "gemini-3" in model_choice.lower()
-                        and "thinking" in config_manager.get_thinking_level().lower()
-                    ):
-                        print(
-                            f"\n[Note] Native reasoning/thinking is currently active on {model_choice}."
-                        )
-                        print(
-                            "Reasoning models typically override manual temperature configurations.\n"
-                        )
-
-                    print(
-                        " Choose a value between 0.0 (deterministic/coding) and 1.5 (creative/emails)."
-                    )
-                    val = input(
-                        f" New Temperature (Current: {config_manager.get_temperature()}): "
-                    ).strip()
-                    try:
-                        temp_val = float(val)
-                        if 0.0 <= temp_val <= 2.0:
-                            config_manager.set_temperature(temp_val)
-                            print(
-                                f"\n[Success] Temperature updated to {config_manager.get_temperature()}!"
-                            )
-                            print(
-                                "This parameter will be applied to your next message automatically.\n"
-                            )
+                            res = in_chat_config.switch_active_model(provider_choice, model_choice)
+                            print(f"\n{res['message']}")
+                            
+                            if res["status"] == "success":
+                                engine = AgentEngine(
+                                    provider_name=res["data"]["provider"],
+                                    model_name=res["data"]["model"],
+                                    api_key=res["data"]["api_key"],
+                                    autonomous=False,
+                                )
                         else:
-                            print(" Out of range. Choose a value between 0.0 and 2.0.")
+                            print("\nSelection cancelled or invalid.")
+                    else:
+                        print(" Invalid selection.")
+                        
+                elif sub_choice == "2":
+                    if ("gemini-3" in model_choice.lower() and "thinking" in config_manager.get_thinking_level().lower()):
+                        print(f"\n[Note] Native reasoning/thinking is currently active on {model_choice}.")
+                        print("Reasoning models typically override manual temperature configurations.\n")
+                    
+                    print(" Choose a value between 0.0 (deterministic/coding) and 1.5 (creative/emails).")
+                    val = input(f" New Temperature (Current: {config_manager.get_temperature()}): ").strip()
+                    try:
+                        res = in_chat_config.update_temperature(float(val))
+                        print(f"\n[{res['status'].capitalize()}] {res['message']}")
                     except ValueError:
                         print(" Invalid input. Please enter a numerical value.")
                 continue
-
+                
             elif lowered == "/thinking":
                 if not supports_thinking(model_choice):
-                    print(
-                        f"\nThe current model [{model_choice}] does not support reasoning/thinking budgets.\n"
-                    )
+                    print(f"\nThe current model [{model_choice}] does not support reasoning/thinking budgets.\n")
                     continue
-                print(
-                    f"\nCurrent thinking level: {config_manager.get_thinking_level().upper()}"
-                )
+                    
+                print(f"\nCurrent thinking level: {config_manager.get_thinking_level().upper()}")
                 print(" [1] Off (Fastest, standard generation)")
                 print(" [2] Low (Light reasoning)")
                 print(" [3] Medium (Balanced thought)")
                 print(" [4] High (Deepest system analysis)")
                 print(SEPARATOR)
-
+                
                 pick = input(" Select thinking level (1-4): ").strip()
-                level_map = {"1": "off", "2": "low", "3": "medium", "4": "high"}
-                selected_level = level_map.get(pick)
-                if selected_level:
-                    config_manager.set_thinking_level(selected_level)
-                    print(
-                        f"\n[Success] Thinking level updated to {config_manager.get_thinking_level().upper()}!"
-                    )
-                    print(
-                        "Your next message will automatically utilize this reasoning depth.\n"
-                    )
-                else:
-                    print(" Invalid selection.")
+                res = in_chat_config.update_thinking_level(pick)
+                print(f"\n[{res['status'].capitalize()}] {res['message']}")
                 continue
 
             # --- Standard Message Dispatch ---
