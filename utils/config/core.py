@@ -35,7 +35,7 @@ DEFAULT_CONFIG = {
             "cpu_limit": 1000000000,
             "timeout_seconds": 15,
             "docker_image": "python:3.11-slim",
-            "workspace_path": "`/.local_workflow_agent/workspace`",
+            "workspace_path": "`~/.local_workflow_agent/workspace`",
         },
         "telegram": {
             "bot_token": None,

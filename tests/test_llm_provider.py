@@ -42,3 +42,52 @@ def test_groq_message_formatting():
     assert groq_msgs[1]["content"] == "Hello"
     assert groq_msgs[2]["role"] == "assistant"
     assert groq_msgs[2]["content"] == "Hi there"
+
+def test_groq_parallel_tool_message_formatting():
+    """Ensures executing the same tool in parallel maps strict sequential FIFO IDs to prevent 400 Bad Requests."""
+    from llm.providers.groq import GroqProvider
+    from llm.schemas import ToolCall
+    
+    # Initialize mock provider settings
+    provider = GroqProvider(api_key="fake", model_name="llama-3.3-70b-versatile")
+    
+    # Setup conversation containing parallel requests to 'read_files' with independent IDs
+    standard_msgs = [
+        {"role": "user", "content": "Process target files"},
+        {
+            "role": "assistant",
+            "content": "Executing standard read tools...",
+            "tool_calls": [
+                ToolCall(name="read_files", args={"paths": ["first.txt"]}, id="call_A"),
+                ToolCall(name="read_files", args={"paths": ["second.txt"]}, id="call_B"),
+            ]
+        },
+        {
+            "role": "tool",
+            "tool_name": "read_files",
+            "content": "Content of the first file"
+        },
+        {
+            "role": "tool",
+            "tool_name": "read_files",
+            "content": "Content of the second file"
+        }
+    ]
+    
+    # Process conversion schema through refactored formatting logic
+    groq_msgs = provider.format_messages(standard_msgs)
+    
+    # Assert both tool calls in assistant turn are parsed correctly
+    assert len(groq_msgs) == 4
+    assert "tool_calls" in groq_msgs[1]
+    assert groq_msgs[1]["tool_calls"][0]["id"] == "call_A"
+    assert groq_msgs[1]["tool_calls"][1]["id"] == "call_B"
+    
+    # Verify sequential mapping adheres strictly to requested queue positions
+    assert groq_msgs[2]["role"] == "tool"
+    assert groq_msgs[2]["tool_call_id"] == "call_A"  # Successfully mapped to the first execution call
+    assert groq_msgs[2]["content"] == "Content of the first file"
+    
+    assert groq_msgs[3]["role"] == "tool"
+    assert groq_msgs[3]["tool_call_id"] == "call_B"  # Successfully mapped to the second execution call
+    assert groq_msgs[3]["content"] == "Content of the second file"

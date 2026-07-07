@@ -68,26 +68,35 @@ class GroqProvider(BaseLLMProvider):
     ) -> List[Dict[str, Any]]:
         """Maps universal standardized messages to Groq's OpenAI-compatible schema."""
         openai_messages = []
-        tool_call_id_map = {}  # Tracks mapping of tool_name -> tool_call_id
-
+        
+        # Use FIFO queues to handle sequential/parallel calls of the same tool name
+        from collections import defaultdict
+        tool_queues = defaultdict(list)
+        
         for msg in standard_messages:
             role = msg["role"]
             content = msg.get("content", "")
-
+            
             if role == "system":
                 openai_messages.append({"role": "system", "content": content})
+                
             elif role == "user":
                 openai_messages.append({"role": "user", "content": content})
+                
             elif role == "tool":
                 tool_name = msg.get("tool_name")
-                # Resolve the matching tool_call_id or fall back to a structured one
-                tool_call_id = tool_call_id_map.get(tool_name, f"call_{tool_name}")
-
+                
+                # Dequeue the oldest registered tool_call_id for this tool name
+                if tool_name in tool_queues and tool_queues[tool_name]:
+                    tool_call_id = tool_queues[tool_name].pop(0)
+                else:
+                    tool_call_id = f"call_{tool_name}"
+                    
                 if isinstance(content, (dict, list)):
                     content_str = json.dumps(content, ensure_ascii=False)
                 else:
                     content_str = str(content) if content is not None else ""
-
+                    
                 openai_messages.append(
                     {
                         "role": "tool",
@@ -96,11 +105,12 @@ class GroqProvider(BaseLLMProvider):
                         "content": content_str,
                     }
                 )
+                
             elif role == "assistant":
                 openai_msg = {"role": "assistant"}
                 if content:
                     openai_msg["content"] = content
-
+                    
                 tool_calls = msg.get("tool_calls")
                 if tool_calls:
                     openai_tool_calls = []
@@ -111,14 +121,15 @@ class GroqProvider(BaseLLMProvider):
                         tc_id = (
                             getattr(tc, "id", None) or tc.get("id") or f"call_{tc_name}"
                         )
-
-                        tool_call_id_map[tc_name] = tc_id
-
+                        
+                        # Queue this call_id to map back to its sequential execution output
+                        tool_queues[tc_name].append(tc_id)
+                        
                         if isinstance(tc_args, dict):
                             args_str = json.dumps(tc_args)
                         else:
                             args_str = str(tc_args)
-
+                            
                         openai_tool_calls.append(
                             {
                                 "id": tc_id,
@@ -127,8 +138,9 @@ class GroqProvider(BaseLLMProvider):
                             }
                         )
                     openai_msg["tool_calls"] = openai_tool_calls
+                    
                 openai_messages.append(openai_msg)
-
+                
         return openai_messages
 
     def embed_text(self, texts: List[str]) -> List[List[float]]:

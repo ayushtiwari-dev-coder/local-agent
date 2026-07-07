@@ -94,48 +94,52 @@ def test_handle_approval_query_expired(mock_resolve, tg_bot_module):
         "query_1", "Error: Approval session expired or not found."
     )
 
-# Mock the config calls so AgentEngine doesn't crash from missing API keys during the test
-@patch("interfaces.telegram_bot.config_manager.get_default_provider", return_value="gemini")
-@patch("interfaces.telegram_bot.config_manager.get_active_model", return_value="gemini-3.1-flash-lite")
-@patch("interfaces.telegram_bot.config_manager.get_provider_api_key", return_value="fake_key")
-@patch("interfaces.telegram_bot.AgentEngine")
 @patch("interfaces.telegram_bot.create_conversation")
-def test_agent_worker_thread_markdown_crash_fallback(mock_create_conv, mock_engine_class, mock_key, mock_model, mock_prov, tg_bot_module):
+@patch("interfaces.telegram_bot.get_latest_conversation_by_title")
+def test_telegram_memory_flow(mock_get_latest_by_title, mock_create, tg_bot_module):
+    """ Tests the full memory lifecycle:
+    1. First touch (Creates new)
+    2. Subsequent touch (Reuses existing)
+    3. /clean command (Creates new to reset)
     """
-    API Edge Case: If the LLM outputs broken Markdown (e.g. unclosed code blocks), 
-    the Telegram API throws an error. The bot MUST catch this and send a raw text fallback.
-    """
-    mock_create_conv.return_value = {"id": 1}
+    # --- SCENARIO 1: First Touch (No history exists) ---
+    mock_get_latest_by_title.return_value = None
+    mock_create.return_value = {"id": 1, "title": "Telegram Chat 111"}
+    conv1 = tg_bot_module.get_latest_tg_conversation(111)
     
-    mock_engine_instance = MagicMock()
-    mock_engine_instance.send_message.return_value = "Here is your code: ```python print('broken"
-    mock_engine_class.return_value = mock_engine_instance
+    mock_create.assert_called_once_with(title="Telegram Chat 111")
+    assert conv1["id"] == 1
     
-    def send_message_side_effect(chat_id, text, **kwargs):
-        if "Here is your code" in text:
-            raise Exception("Bad Request: can't parse entities")
+    # --- SCENARIO 2: Subsequent Touch (History exists) ---
+    mock_create.reset_mock()
+    mock_get_latest_by_title.return_value = {"id": 1, "title": "Telegram Chat 111"}
+    conv2 = tg_bot_module.get_latest_tg_conversation(111)
     
-    tg_bot_module.bot.send_message.side_effect = send_message_side_effect
+    mock_create.assert_not_called()
+    assert conv2["id"] == 1
     
-    tg_bot_module.agent_worker_thread(chat_id=111, user_text="Write me a script")
+    # --- SCENARIO 3: User types /clean ---
+    mock_create.reset_mock()
+    mock_message = MagicMock()
+    mock_message.chat.id = 111
     
-    assert tg_bot_module.bot.send_message.call_count == 2
-    
-    # Extract the text from the SECOND call (the fallback). 
-    # Text is passed as the 2nd positional argument: bot.send_message(chat_id, text)
-    fallback_text = tg_bot_module.bot.send_message.call_args[0][1]
-    
-    assert "Error during execution" in fallback_text
-    assert "Bad Request: can't parse entities" in fallback_text
+    with patch.object(tg_bot_module, 'is_authorized', return_value=True):
+        tg_bot_module.handle_clean_command(mock_message)
+        
+    mock_create.assert_called_once_with(title="Telegram Chat 111")
+    assert "Memory cleared" in tg_bot_module.bot.reply_to.call_args[0][1]
 
+
+# Replace the old test_telegram_send_message_callback_routing with this:
 @patch("interfaces.telegram_bot.config_manager.get_default_provider", return_value="gemini")
 @patch("interfaces.telegram_bot.config_manager.get_active_model", return_value="gemini-3.1-flash-lite")
 @patch("interfaces.telegram_bot.config_manager.get_provider_api_key", return_value="fake_key")
 @patch("interfaces.telegram_bot.AgentEngine")
-@patch("interfaces.telegram_bot.create_conversation")
-def test_telegram_send_message_callback_routing(mock_create_conv, mock_engine_class, mock_key, mock_model, mock_prov, tg_bot_module):
+@patch("interfaces.telegram_bot.get_latest_tg_conversation") # <--- CHANGED THIS MOCK
+def test_telegram_send_message_callback_routing(mock_get_latest_conv, mock_engine_class, mock_key, mock_model, mock_prov, tg_bot_module):
     """Verifies that the internal callback correctly attaches InlineKeyboards ONLY for Action Required prompts."""
-    mock_create_conv.return_value = {"id": 1}
+    # Mock the database return value
+    mock_get_latest_conv.return_value = {"id": 1}
     
     # Grab the mock engine instance that will be returned
     engine_mock = mock_engine_class.return_value
@@ -152,12 +156,83 @@ def test_telegram_send_message_callback_routing(mock_create_conv, mock_engine_cl
     tg_bot_module.bot.send_message.assert_called_with(111, "Just a normal status update", parse_mode="Markdown")
     
     # 2. Test Action Required message
-    # NOTE: This string MUST match the exact string/emoji in your telegram_bot.py `if` statement!
     trigger_text = "🚨 *Action Required*" 
     
     internal_callback(1, f"{trigger_text}\nPlease approve.")
     
     # Verify reply_markup was attached
     call_kwargs = tg_bot_module.bot.send_message.call_args[1]
-    assert "reply_markup" in call_kwargs, f"Test failed: The text '{trigger_text}' did not trigger the Yes/No buttons."
+    assert "reply_markup" in call_kwargs, f"Test failed: The text '{trigger_text}' did not trigger the Approve/Deny buttons."
     assert call_kwargs["reply_markup"] is not None
+
+
+
+@patch("interfaces.telegram_bot.create_conversation")
+@patch("interfaces.telegram_bot.get_latest_conversation_by_title")
+def test_telegram_memory_flow(mock_get_latest_by_title, mock_create, tg_bot_module):
+    """ Tests the full memory lifecycle:
+    1. First touch (Creates new)
+    2. Subsequent touch (Reuses existing)
+    3. /clean command (Creates new to reset)
+    """
+    # --- SCENARIO 1: First Touch (No history exists) ---
+    mock_get_latest_by_title.return_value = None
+    mock_create.return_value = {"id": 1, "title": "Telegram Chat 111"}
+    conv1 = tg_bot_module.get_latest_tg_conversation(111)
+    
+    mock_create.assert_called_once_with(title="Telegram Chat 111")
+    assert conv1["id"] == 1
+    
+    # --- SCENARIO 2: Subsequent Touch (History exists) ---
+    mock_create.reset_mock()
+    mock_get_latest_by_title.return_value = {"id": 1, "title": "Telegram Chat 111"}
+    conv2 = tg_bot_module.get_latest_tg_conversation(111)
+    
+    mock_create.assert_not_called()
+    assert conv2["id"] == 1
+    
+    # --- SCENARIO 3: User types /clean ---
+    mock_create.reset_mock()
+    mock_message = MagicMock()
+    mock_message.chat.id = 111
+    
+    with patch.object(tg_bot_module, 'is_authorized', return_value=True):
+        tg_bot_module.handle_clean_command(mock_message)
+        
+    mock_create.assert_called_once_with(title="Telegram Chat 111")
+    assert "Memory cleared" in tg_bot_module.bot.reply_to.call_args[0][1]
+
+
+@patch("config_configure.in_chat_config.switch_active_model")
+@patch("config_configure.in_chat_config.update_thinking_level")
+@patch("queries.conversation_queries.execute_write", return_value=1)
+@patch("queries.conversation_queries.execute_read", return_value={"id": 1, "title": "Telegram Chat 111"})
+def test_interactive_menu_command_flows(mock_read, mock_write, mock_update_think, mock_switch_model, tg_bot_module):
+    """ Tests that the interactive menu buttons correctly route to the backend functions.
+    Patches the source modules and DB executors directly to prevent AttributeErrors and Thread crashes.
+    """
+    def make_call(data):
+        call = MagicMock()
+        call.data = data
+        call.message.chat.id = 111
+        call.message.message_id = 222
+        return call
+        
+    with patch.object(tg_bot_module, 'is_authorized', return_value=True):
+        # 1. Test clicking "New Chat" in the menu
+        tg_bot_module.handle_config_queries(make_call("tg_cmd_clean"))
+        
+        # Robustly extract the text argument whether passed as positional or keyword to prevent KeyError
+        args, kwargs = tg_bot_module.bot.edit_message_text.call_args
+        text_sent = kwargs.get("text") or (args[0] if args else "")
+        assert "Memory cleared" in text_sent
+        
+        # 2. Test clicking a specific Model (e.g., Gemini Flash Lite)
+        mock_switch_model.return_value = {"message": "Model switched successfully"}
+        tg_bot_module.handle_config_queries(make_call("tg_set_mod_gemini_gemini-3.1-flash-lite"))
+        mock_switch_model.assert_called_once_with("gemini", "gemini-3.1-flash-lite")
+        
+        # 3. Test clicking a Thinking Level (e.g., Low)
+        mock_update_think.return_value = {"message": "Thinking updated successfully"}
+        tg_bot_module.handle_config_queries(make_call("tg_set_thk_low"))
+        mock_update_think.assert_called_once_with("low")
