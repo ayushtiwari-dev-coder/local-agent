@@ -18,7 +18,7 @@ def test_format_context_standard_message_flow(mock_get_inst):
     system_instruction, standardized_messages = format_context(raw_db_messages)
 
     # Verify base system prompt is loaded from DEFAULT fallback
-    assert "You are a highly efficient" in system_instruction
+    assert "You are an elite, highly efficient" in system_instruction
 
     # Verify standardized messages structure
     assert len(standardized_messages) == 2
