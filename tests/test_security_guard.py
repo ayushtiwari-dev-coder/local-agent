@@ -52,7 +52,8 @@ def test_command_chaining_and_substitution():
 
 def test_destructive_rm_flags():
     """Security: Specifically blocks destructive 'rm' flags on critical paths."""
-    # FIX: Changed "/workspace" to "/" to correctly trigger the exact match in the code
     is_safe, reason = check_command_safety("rm -rf /")
     assert is_safe is False
-    assert "Destructive 'rm' command detected" in reason
+    
+    # FIX: Updated to match the new security guard's exact error message
+    assert "Destructive command 'rm' targeting outside path" in reason

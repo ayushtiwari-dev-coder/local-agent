@@ -16,8 +16,6 @@ from utils.config.settings import (
     set_max_turns,
     get_loop_guard,
     set_loop_guard,
-    get_sandbox_settings,
-    set_sandbox_settings,
     get_max_context_tokens,
     set_max_context_tokens,
     get_summary_trigger_count,
@@ -32,10 +30,20 @@ from utils.config.settings import (
     set_system_instruction,
     get_workspace_path,
     set_workspace_path,
-    get_docker_image,
-    set_docker_image,
     get_telegram_config,
     set_telegram_config,
+    # DOCKER RE-ACTIVATION REFERENCE:
+    # If Docker sandboxing is enabled, uncomment these imported functions:
+    # get_max_active_containers,
+    # set_max_active_containers,
+    # get_max_total_containers,
+    # set_max_total_containers,
+    # get_container_idle_timeout,
+    # set_container_idle_timeout,
+    # get_docker_image,
+    # set_docker_image,
+    # get_sandbox_settings,
+    # set_sandbox_settings,
 )
 from utils.config.user import (
     get_user_profile,

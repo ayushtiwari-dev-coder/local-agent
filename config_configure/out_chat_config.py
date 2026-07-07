@@ -125,19 +125,6 @@ def update_summary_trigger_count(count: int) -> dict:
     }
 
 
-def update_sandbox_limits(
-    memory_limit: str, timeout_seconds: int, cpu_limit: int = 1000000000
-) -> dict:
-    """Headless function to update Docker sandbox resource limits."""
-    config_manager.set_sandbox_settings(
-        memory_limit=memory_limit, cpu_limit=cpu_limit, timeout_seconds=timeout_seconds
-    )
-    return {
-        "status": "success",
-        "message": "Sandbox safety bounds updated successfully!",
-    }
-
-
 def update_cli_log_truncation(limit: int) -> dict:
     """Headless function to update the CLI log truncation length."""
     config_manager.set_cli_log_truncation_limit(limit)
@@ -183,12 +170,6 @@ def update_workspace_path(path: str) -> dict:
     """Headless function to update the absolute path for the local workspace."""
     config_manager.set_workspace_path(path)
     return {"status": "success", "message": "Workspace path updated successfully."}
-
-
-def update_docker_image(image: str) -> dict:
-    """Headless function to update the Docker image used for sandboxing."""
-    config_manager.set_docker_image(image)
-    return {"status": "success", "message": "Docker image updated successfully."}
 
 
 def get_telegram_settings() -> dict:
