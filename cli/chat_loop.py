@@ -9,7 +9,7 @@ from rich.table import Table
 from cli.constants import SEPARATOR, IN_CHAT_HELP, SUPPORTED_MODELS
 from cli.callbacks import (
     reset_execution_counters,
-    cli_tool_approval_callback,
+    cli_approval_callback,
     cli_status_callback,
 )
 from engine.agent_engine import AgentEngine
@@ -17,7 +17,6 @@ from engine.thinking_configure import supports_thinking
 from queries.message_queries import get_messages_by_conversation
 from queries.tool_log_queries import get_tool_logs_by_conversation
 import utils.config_manager as config_manager
-from cli.translator import cli_translator_layer
 import config_configure.in_chat_config as in_chat_config
 
 console = Console()
@@ -283,11 +282,12 @@ def enter_chat_session(conversation_id: int) -> None:
             # --- Standard Message Dispatch ---
             reset_execution_counters()
             response_text = engine.send_message(
-                conversation_id=conversation_id,
-                user_text=user_input,
-                source="cli",
-                status_callback=cli_status_callback,
-            )
+                    conversation_id=conversation_id,
+                    user_text=user_input,
+                    source="cli",
+                    status_callback=cli_status_callback,
+                    approval_callback=cli_approval_callback 
+                )
             print(f"\n Assistant: {response_text}\n")
 
         except Exception as e:

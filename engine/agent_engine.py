@@ -13,7 +13,6 @@ from managers.conversation_manager import (
 from managers.summary_manager import trigger_background_summary
 from llm.provider_factory import LLMFactory
 import utils.config_manager as config_manager
-from engine.orchestrator import unified_translator_layer
 
 
 class AgentEngine:
@@ -53,12 +52,12 @@ class AgentEngine:
         self,
         conversation_id: int,
         user_text: str,
-        source: str ="cli",
-        send_message_callback=None,  
+        source: str = "cli",
+        send_message_callback=None,
         status_callback=None,
+        approval_callback=None, # <-- Added the callback parameter
     ) -> str:
         """Executes the ReAct loop using the abstract LLM provider."""
-        
         save_user_message(conversation_id, user_text)
 
         # compile_llm_context returns standard dicts: [{"role": "user", "content": "hi"}]
@@ -122,31 +121,16 @@ class AgentEngine:
                             f"Executing tool '{tool_name}' with arguments:\n{tool_args}"
                         )
 
-                    
-                    # 1. Call determine_and_execute_tool
+                    # 1. Call determine_and_execute_tool (Pass the callback down!)
                     tool_output, status = determine_and_execute_tool(
-                    tool_name,
-                    tool_args,
-                    conversation_id,
-                    self.autonomous
+                        tool_name,
+                        tool_args,
+                        conversation_id,
+                        self.autonomous,
+                        approval_callback=approval_callback # <-- Pass it here
                     )
 
-                    # ONLY do this routing if the tool actually needs approval
-                    if status == "REQUIRES_APPROVAL":
-                      # Check if we have a way to ask the user
-                      if source == "cli" or send_message_callback is not None:
-                        tool_output, status = unified_translator_layer(
-                        tool_name=tool_name,
-                        tool_args=tool_args,
-                        conversation_id=conversation_id,
-                        source=source,
-                        send_message_callback=send_message_callback
-                        )
-                      else:
-                           # Only throw this error if it NEEDED approval but couldn't get it
-                           tool_output = f"Error: Tool '{tool_name}' requires approval, but no translator layer is connected."
-                           status = "error"
-        
+                    # 2. Log to history and append to messages
                     if status_callback:
                         status_callback(
                             f"Tool '{tool_name}' returned status: '{status}'"
@@ -173,7 +157,6 @@ class AgentEngine:
                             "content": formatted_output,
                         }
                     )
-
                 continue
 
             else:
