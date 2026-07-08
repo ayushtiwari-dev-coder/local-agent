@@ -3,6 +3,7 @@ import time
 from rich.console import Console
 from rich.panel import Panel
 from cli.security_rules import UNSAFE_TOOLS
+import json
 
 console = Console()
 
@@ -18,18 +19,12 @@ def reset_execution_counters() -> None:
     _tool_execution_counter = 0
 
 
-def cli_tool_approval_callback(tool_name: str, arguments: dict) -> bool:
-    """Supervised Permission Check: Halts execution to ask the user for authorization."""
-    unsafe_tools = UNSAFE_TOOLS
-    if tool_name not in unsafe_tools:
-        return True
-
-    # 3. Halt and prompt the user ONLY for unsafe tools
-    print(f"\n [⚠️ CRUCIAL ACTION REQUESTED] -> {tool_name}")
-    print(f" Parameters: {arguments}")
+def cli_approval_callback(tool_name: str, tool_args: dict, conversation_id: int) -> bool:
+    """CLI specific approval prompt. Freezes terminal via input()."""
+    print(f"\n [🚨 CRUCIAL ACTION REQUESTED] -> {tool_name}")
+    print(f" Parameters: {json.dumps(tool_args, indent=2)}")
     choice = input(" Allow this action? (y/n): ").strip().lower()
     return choice == "y"
-
 
 def validate_api_key(provider: str, key: str) -> bool:
     """Attempts a quick, lightweight request using the SDK client to validate key permissions."""

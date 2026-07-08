@@ -30,15 +30,18 @@ class LocalSandboxExecutor:
                 errors="replace"
             )
             
+            # COMBINE stdout and stderr so the LLM never misses hidden logs
+            combined_output = f"{result.stdout}\n{result.stderr}".strip()
+
             if result.returncode == 0:
                 return {
-                    "status": "success", 
-                    "output": result.stdout.strip() or "[Command executed with no output]"
+                    "status": "success",
+                    "output": combined_output or "[Command executed with no output]"
                 }
             else:
                 return {
-                    "status": "error", 
-                    "output": f"Process failed with exit code {result.returncode}.\nOutput:\n{result.stderr.strip()}"
+                    "status": "error",
+                    "output": f"Process failed with exit code {result.returncode}.\nOutput:\n{combined_output}"
                 }
                 
         except subprocess.TimeoutExpired:
