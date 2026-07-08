@@ -24,12 +24,14 @@ def check_command_safety(command: str) -> tuple[bool, str | None]:
         return False, "Command substitution ($(cmd) or `cmd`) is not allowed."
 
     # 2. Block background execution (prevents rogue detached processes)
-    if cmd_str.endswith("&") or " & " in cmd_str:
+    # This regex catches single '&' anywhere, but ignores '&&', '>&', '<&', '&>'
+    if _re.search(r"(?<![&<>])&(?!&)", cmd_str):
         return False, "Background execution (&) is not allowed."
 
-    # 3. Split the command by shell operators to validate EVERY chained command
+    # 3. Split the command by shell operators AND NEWLINES to validate EVERY chained command
     try:
-        segments = _re.split(r";|\|\||\||&&", cmd_str)
+        # ADDED \n and \r to prevent newline command injection
+        segments = _re.split(r";|\|\||\||&&|\n|\r", cmd_str)
     except Exception as e:
         return False, f"Failed to parse command structure: {e}"
 

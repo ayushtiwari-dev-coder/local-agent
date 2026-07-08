@@ -34,12 +34,16 @@ def test_blocked_commands():
 def test_command_chaining_and_substitution():
     """Security: Blocks command injection techniques."""
     injections = [
-        "echo 'hi'; rm -rf /",  # Semicolon chaining
-        "echo 'hi' && rm -rf /",  # AND chaining
-        "echo 'hi' || rm -rf /",  # OR chaining
-        "echo $(rm -rf /)",  # $() substitution
-        "echo `rm -rf /`",  # Backtick substitution
+        "echo 'hi'; rm -rf /",      # Semicolon chaining
+        "echo 'hi' && rm -rf /",    # AND chaining
+        "echo 'hi' || rm -rf /",    # OR chaining
+        "echo $(rm -rf /)",         # $() substitution
+        "echo `rm -rf /`",          # Backtick substitution
+        "echo 'hi'\nrm -rf /",      # NEW: Newline injection
+        "echo 'hi'\rrm -rf /",      # NEW: Carriage return injection
+        "echo 'hi'&rm -rf /",       # NEW: Unspaced background/chaining
     ]
+    
     for cmd in injections:
         is_safe, reason = check_command_safety(cmd)
         assert is_safe is False
@@ -47,6 +51,7 @@ def test_command_chaining_and_substitution():
             "not in the allowed whitelist" in reason
             or "substitution" in reason
             or "Destructive" in reason
+            or "Background execution" in reason 
         )
 
 

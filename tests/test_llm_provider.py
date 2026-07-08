@@ -91,3 +91,34 @@ def test_groq_parallel_tool_message_formatting():
     assert groq_msgs[3]["role"] == "tool"
     assert groq_msgs[3]["tool_call_id"] == "call_B"  # Successfully mapped to the second execution call
     assert groq_msgs[3]["content"] == "Content of the second file"
+from llm.schemas import ToolCall
+
+def test_gemini_parallel_tool_message_formatting():
+    """Ensures executing multiple tools in parallel groups them into a single 'function' role."""
+    provider = GeminiProvider(api_key="fake", model_name="gemini-3.1-flash-lite")
+    
+    standard_msgs = [
+        {"role": "user", "content": "Process files"},
+        {
+            "role": "assistant", 
+            "content": "Reading...", 
+            "tool_calls": [
+                ToolCall(name="read_files", args={"paths": ["a.txt"]}, id="call_A"),
+                ToolCall(name="read_files", args={"paths": ["b.txt"]}, id="call_B")
+            ]
+        },
+        {"role": "tool", "tool_name": "read_files", "content": "A content"},
+        {"role": "tool", "tool_name": "read_files", "content": "B content"}
+    ]
+    
+    gemini_msgs = provider.format_messages(standard_msgs)
+    
+    # Should be exactly 3 messages: user -> model -> function (grouped)
+    assert len(gemini_msgs) == 3
+    assert gemini_msgs[0]["role"] == "user"
+    assert gemini_msgs[1]["role"] == "model"
+    assert len(gemini_msgs[1]["parts"]) == 3 # 1 text part, 2 function_call parts
+    
+    # Verify the tool responses were grouped!
+    assert gemini_msgs[2]["role"] == "function"
+    assert len(gemini_msgs[2]["parts"]) == 2 # 2 function_response parts
