@@ -8,25 +8,25 @@ from llm.provider_factory import LLMFactory
 import utils.config_manager as config_manager
 import logging
 
-logger = logging.getLogger("managers.summary_manager").setLevel(logging.DEBUG)
+logger = logging.getLogger("managers.summary_manager")
+logger.setLevel(logging.DEBUG)
 
 
 def trigger_background_summary(
-    api_key: str, model_name: str, conversation_id: int
+    provider_name: str, api_key: str, model_name: str, conversation_id: int
 ) -> None:
-    """
-    Spawns a local background thread to analyze and compress conversation history
-    without causing any terminal UI latency.
-    """
     thread = threading.Thread(
-        target=_run_summary_workflow, args=(api_key, model_name, conversation_id)
+        target=_run_summary_workflow,
+        args=(provider_name, api_key, model_name, conversation_id),
     )
-    thread.daemon = True  # Allows the application to exit safely if thread is running
+    thread.daemon = True
     thread.start()
 
 
-def _run_summary_workflow(api_key: str, model_name: str, conversation_id: int) -> None:
-
+def _run_summary_workflow(
+    provider_name: str, api_key: str, model_name: str, conversation_id: int
+) -> None:
+    
     # 1. Fetch old summary and determine the last message ID we summarized
     summary_record = get_summary_by_conversation(conversation_id)
     last_msg_id = summary_record["last_summarized_message_id"] if summary_record else 0
@@ -69,7 +69,7 @@ def _run_summary_workflow(api_key: str, model_name: str, conversation_id: int) -
 
     try:
         # Use our decoupled factory instead of raw direct SDK calls
-        provider = LLMFactory.get_provider("gemini", api_key, model_name)
+        provider = LLMFactory.get_provider(provider_name, api_key, model_name)
 
         # Format the prompt as a standard unified message structure
         messages = [{"role": "user", "content": prompt}]

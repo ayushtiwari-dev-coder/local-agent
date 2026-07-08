@@ -1,6 +1,6 @@
 # tools/security_guard.py
 
-import re
+import re as _re
 import shlex
 
 # 1. STRICT WHITELIST: Only these base commands are allowed to even reach the user prompt.
@@ -20,16 +20,18 @@ def check_command_safety(command: str) -> tuple[bool, str | None]:
     cmd_str = command.strip()
 
     # 1. Block command substitution which can hide malicious commands
-    if re.search(r"\$\(.*?\)|`.*?`", cmd_str):
+    if _re.search(r"\$\(.*?\)|`.*?`", cmd_str):
         return False, "Command substitution ($(cmd) or `cmd`) is not allowed."
 
     # 2. Block background execution (prevents rogue detached processes)
-    if cmd_str.endswith("&") or " & " in cmd_str:
+    # This regex catches single '&' anywhere, but ignores '&&', '>&', '<&', '&>'
+    if _re.search(r"(?<![&<>])&(?!&)", cmd_str):
         return False, "Background execution (&) is not allowed."
 
-    # 3. Split the command by shell operators to validate EVERY chained command
+    # 3. Split the command by shell operators AND NEWLINES to validate EVERY chained command
     try:
-        segments = re.split(r";|\|\||\||&&", cmd_str)
+        # ADDED \n and \r to prevent newline command injection
+        segments = _re.split(r";|\|\||\||&&|\n|\r", cmd_str)
     except Exception as e:
         return False, f"Failed to parse command structure: {e}"
 
@@ -40,7 +42,7 @@ def check_command_safety(command: str) -> tuple[bool, str | None]:
 
         # 4. Redirection Safety Check (CRITICAL)
         if ">" in segment or ">>" in segment:
-            redir_parts = re.split(r">+", segment)
+            redir_parts = _re.split(r">+", segment)
             if len(redir_parts) > 1:
                 target = redir_parts[-1].strip()
                 if target.startswith("/") or target.startswith("~") or ".." in target:

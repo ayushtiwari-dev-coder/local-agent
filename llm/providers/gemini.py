@@ -21,50 +21,67 @@ class GeminiProvider(BaseLLMProvider):
     ) -> List[Dict[str, Any]]:
         """Maps the universal standard messages to Gemini's specific SDK format."""
         gemini_messages = []
+        current_function_parts = [] # Buffer to group parallel tool calls
+
         for msg in standard_messages:
             role = msg["role"]
             content = msg.get("content", "")
+
             if role == "tool":
-                # Gemini specific tool response syntax
-                gemini_messages.append(
-                    {
-                        "role": "function",
-                        "parts": [
-                            {
-                                "function_response": {
-                                    "name": msg.get("tool_name"),
-                                    "response": {"result": content},
-                                }
-                            }
-                        ],
+                # Buffer the tool responses instead of appending immediately
+                current_function_parts.append({
+                    "function_response": {
+                        "name": msg.get("tool_name"),
+                        "response": {"result": content},
                     }
-                )
+                })
             else:
-                # Gemini specific user/model syntax
+                # If we have buffered tool calls, flush them into a SINGLE message first
+                if current_function_parts:
+                    gemini_messages.append({
+                        "role": "function",
+                        "parts": current_function_parts
+                    })
+                    current_function_parts = []
+
+                # Handle user/model roles
                 gemini_role = "model" if role == "assistant" else "user"
                 parts = [{"text": content}] if content else []
 
                 if msg.get("tool_calls"):
                     for tc in msg["tool_calls"]:
-                        fc_dict = {"name": tc.name, "args": tc.args}
-                        metadata = tc.metadata if getattr(tc, "metadata", None) else {}
-
+                        # SAFELY handle both dicts (from DB) and ToolCall objects (from tests)
+                        if isinstance(tc, dict):
+                            tc_name = tc.get("name")
+                            tc_args = tc.get("args")
+                            metadata = tc.get("metadata", {})
+                        else:
+                            tc_name = getattr(tc, "name", None)
+                            tc_args = getattr(tc, "args", None)
+                            metadata = getattr(tc, "metadata", {}) or {}
+                            
+                        fc_dict = {"name": tc_name, "args": tc_args}
+                        
                         if "id" in metadata:
                             fc_dict["id"] = metadata["id"]
-
-                        # Build the Part structure
+                            
                         part_dict = {"function_call": fc_dict}
-
-                        # thought_signature belongs on the Part level as a sibling
+                        
                         if "thought_signature" in metadata:
-                            part_dict["thought_signature"] = metadata[
-                                "thought_signature"
-                            ]
-
+                            part_dict["thought_signature"] = metadata["thought_signature"]
+                            
                         parts.append(part_dict)
 
                 if parts:
                     gemini_messages.append({"role": gemini_role, "parts": parts})
+
+        # Flush any remaining tool calls at the very end of the loop
+        if current_function_parts:
+            gemini_messages.append({
+                "role": "function",
+                "parts": current_function_parts
+            })
+
         return gemini_messages
 
     def embed_text(self, texts: List[str]) -> List[List[float]]:

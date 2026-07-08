@@ -166,8 +166,7 @@ def telegram_send_message(chat_id: int, c_id: int, text: str):
         bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
     else:
         bot.send_message(chat_id, text, parse_mode="Markdown")
-    
-telegram_executor = ThreadPoolExecutor(max_workers=3)
+
 
 @bot.message_handler(func=lambda message: True)
 def handle_all_messages(message):

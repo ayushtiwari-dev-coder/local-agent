@@ -1,7 +1,6 @@
 import os
 import json
 
-from fastapi import utils
 from tools.registry import get_all_tools
 from llm.loop_protector import check_for_infinite_loop, _extract_paths
 from engine.handle_permissions import determine_and_execute_tool
@@ -42,7 +41,10 @@ class AgentEngine:
     def _trigger_summary_safely(self, conversation_id: int) -> None:
         try:
             trigger_background_summary(
-                self.provider.api_key, self.provider.model_name, conversation_id
+            self.provider.__class__.__name__.replace("Provider", "").lower(),
+            self.provider.api_key,
+            self.provider.model_name,
+            conversation_id,
             )
         except Exception:
             pass

