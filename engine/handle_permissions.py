@@ -3,7 +3,8 @@ import json
 from tools.registry import execute_tool
 from managers.conversation_manager import log_tool_run
 
-UNSAFE_TOOLS = {"run_terminal_command"}
+
+from cli.security_rules import UNSAFE_TOOLS
 
 
 def _detect_tool_error(tool_name: str, tool_output: any) -> bool:
