@@ -1,6 +1,6 @@
 # tests/test_security_guard.py
 import pytest
-from tools.security_guard import check_command_safety
+from security.security_guard import check_command_safety
 
 def test_allowed_commands():
     """Ensures safe commands pass the whitelist."""

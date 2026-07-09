@@ -4,7 +4,7 @@ import re as _re
 import shlex
 
 # Import the new static analyzer and the sandbox root directory
-from tools.static_analyzer import scan_file_for_threats
+from security.static_analyzer import scan_file_for_threats
 from tools.file_tools import SANDBOX_ROOT
 
 # 1. STRICT WHITELIST: Only these base commands are allowed to even reach the user prompt.

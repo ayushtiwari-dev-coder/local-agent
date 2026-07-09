@@ -1,7 +1,7 @@
 # tests/test_check_security_comprehensive.py
 import pytest
 from unittest.mock import patch
-from tools.security_guard import check_command_safety
+from security.security_guard import check_command_safety
 
 class TestSecurityGuardComprehensive:
     """Exhaustive test suite for the upgraded security_guard.py."""
@@ -113,10 +113,10 @@ class TestSecurityGuardComprehensive:
         assert is_safe is False
         assert "Malformed command syntax" in reason
 
-    @patch("tools.security_guard.os.path.exists", return_value=True)
-    @patch("tools.security_guard.os.path.isfile", return_value=True)
-    @patch("tools.security_guard.os.path.commonpath")
-    @patch("tools.security_guard.scan_file_for_threats")
+    @patch("security.security_guard.os.path.exists", return_value=True)
+    @patch("security.security_guard.os.path.isfile", return_value=True)
+    @patch("security.security_guard.os.path.commonpath")
+    @patch("security.security_guard.scan_file_for_threats")
     def test_static_analyzer_trigger(self, mock_scan, mock_commonpath, mock_isfile, mock_exists):
         """Ensures file execution triggers the static analyzer before running."""
         from tools.file_tools import SANDBOX_ROOT
@@ -281,10 +281,10 @@ class TestSecurityGuardComprehensive:
         assert is_safe is False
         assert "Malformed command syntax" in reason
 
-    @patch("tools.security_guard.os.path.exists", return_value=True)
-    @patch("tools.security_guard.os.path.isfile", return_value=True)
-    @patch("tools.security_guard.os.path.commonpath")
-    @patch("tools.security_guard.scan_file_for_threats")
+    @patch("security.security_guard.os.path.exists", return_value=True)
+    @patch("security.security_guard.os.path.isfile", return_value=True)
+    @patch("security.security_guard.os.path.commonpath")
+    @patch("security.security_guard.scan_file_for_threats")
     def test_static_analyzer_trigger(self, mock_scan, mock_commonpath, mock_isfile, mock_exists):
         """Ensures file execution triggers the static analyzer before running."""
         from tools.file_tools import SANDBOX_ROOT

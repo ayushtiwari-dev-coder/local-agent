@@ -1,9 +1,16 @@
+
+"""
+File System & Workspace Tools.
+These tools allow the agent to read, write, and manipulate files inside the secure local workspace.
+"""
+
 import os
 import json
 import subprocess
 import logging
 import utils.config_manager as config_manager
-from tools.sandbox_executor import LocalSandboxExecutor
+from security.sandbox_executor import LocalSandboxExecutor
+from tools.core import agent_tool
 logger = logging.getLogger("tools.file_tools")
 
 SANDBOX_ROOT = os.path.abspath(
@@ -26,7 +33,7 @@ def _resolve_safe_path(path: str) -> str | None:
         return None
     return full_path
 
-
+@agent_tool
 def read_files(paths: list[str]) -> dict:
     """
     Safely reads multiple files from the sandboxed workspace in a single turn.
@@ -64,6 +71,7 @@ def read_files(paths: list[str]) -> dict:
     return results
 
 
+@agent_tool
 def write_files(files: list[dict]) -> dict:
     """
     Safely writes multiple files to disk inside the sandboxed workspace.
@@ -116,6 +124,7 @@ _sandbox = LocalSandboxExecutor(get_sandbox_root())
 # _sandbox = DockerSandboxExecutor(get_sandbox_root())
 # =====================================================================
 
+@agent_tool
 def run_terminal_command(command: str) -> dict:
     """
     Executes a shell command natively inside the safe local workspace directory.

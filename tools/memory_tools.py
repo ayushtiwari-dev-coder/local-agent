@@ -1,6 +1,12 @@
+# tools/memory_tools.py
+"""
+Long-Term Memory Tools.
+Allows the agent to autonomously remember user preferences, facts, and retrieve past context.
+"""
+
 from managers.memory_manager import save_semantic_memory, retrieve_semantic_memory
-
-
+from tools.core import agent_tool
+@agent_tool
 def remember_user_preference(content: str, category: str) -> str:
     """
     Autonomously remembers a user preference, setting, configuration, or fact.
@@ -12,7 +18,7 @@ def remember_user_preference(content: str, category: str) -> str:
     except Exception as e:
         return f"Error: Failed to store memory: {e}"
 
-
+@agent_tool
 def search_user_history(query: str, category: str) -> str:
     """
     Searches user context history inside a specific category block
