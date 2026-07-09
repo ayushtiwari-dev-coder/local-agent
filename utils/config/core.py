@@ -13,13 +13,14 @@ DEFAULT_CONFIG = {
     },
     "models": {
         "default_provider": "gemini",
+        "default_embedding_provider":"gemini",
         "active_models": {
             "gemini": "gemini-3.1-flash-lite",
             "groq": "llama-3.3-70b-versatile",
         },
         "embedding_models": {
             "gemini": "gemini-embedding-001",
-            "groq": "nomic-embed-text-v1_5",
+            "groq": "nomic-embed-text-v1.5",
         },
         "temperature": 0.2,
     },
