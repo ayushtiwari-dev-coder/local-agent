@@ -3,7 +3,7 @@ import json
 from tools.registry import execute_tool
 from managers.conversation_manager import log_tool_run
 from cli.security_rules import UNSAFE_TOOLS
-from tools.security_guard import check_command_safety
+from security.security_guard import check_command_safety
 
 def _detect_tool_error(tool_name: str, tool_output: any) -> bool:
     """

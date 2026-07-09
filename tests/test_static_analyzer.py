@@ -1,7 +1,7 @@
 # tests/test_static_analyzer.py
 import pytest
 from unittest.mock import patch, mock_open
-from tools.static_analyzer import scan_file_for_threats, MAX_SCAN_SIZE_BYTES
+from security.static_analyzer import scan_file_for_threats, MAX_SCAN_SIZE_BYTES
 
 @patch("os.path.exists", return_value=True)
 @patch("os.path.getsize", return_value=1024) # 1 KB file
