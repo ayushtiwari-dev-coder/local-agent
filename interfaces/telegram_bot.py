@@ -153,7 +153,7 @@ def agent_worker_thread(chat_id: int, user_text: str):
 def handle_all_messages(message):
     if not is_authorized(message):
         return
-    # Spawn a raw thread! No more ThreadPoolExecutor bottlenecks.
+
     threading.Thread(target=agent_worker_thread, args=(message.chat.id, message.text)).start()
 
 def run_telegram_bot():
