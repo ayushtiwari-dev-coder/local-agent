@@ -174,21 +174,39 @@ def models_configuration_flow() -> None:
         print(SEPARATOR)
         print(" [1] Edit Base System Instructions")
         print(
-            f" [2] Set Gemini Embedding Model (Current: {config_manager.get_embedding_model('gemini')})"
+            f" [2] Set Active Embedding Provider (Current: {config_manager.get_default_embedding_provider().upper()})"
         )
         print(
-            f" [3] Set Groq Embedding Model (Current: {config_manager.get_embedding_model('groq')})"
+            f" [3] Set Gemini Embedding Model (Current: {config_manager.get_embedding_model('gemini')})"
         )
-        print(" [4] Back")
+        print(
+            f" [4] Set Groq Embedding Model (Current: {config_manager.get_embedding_model('groq')})"
+        )
+        print(" [5] Back")
 
-        choice = input(" Choose option (1-4): ").strip()
+        choice = input(" Choose option (1-5): ").strip()
         if choice == "1":
             print("\nType your new system prompt (Type 'CLEAR' to revert to default).")
             val = input("Prompt: ").strip()
             res = out_chat_config.update_system_instruction(val)
             print(f" {res['message']}")
-        elif choice in ("2", "3"):
-            provider = "gemini" if choice == "2" else "groq"
+        elif choice == "2":
+            print(SEPARATOR)
+            print(" Select Default Embedding Provider:")
+            print(" [1] Gemini")
+            print(" [2] Groq")
+            print(SEPARATOR)
+            prov_choice = input(" Choose provider (1-2): ").strip()
+            if prov_choice == "1":
+                res = out_chat_config.set_default_embedding_provider("gemini")
+                print(f"\n[Success] {res['message']}")
+            elif prov_choice == "2":
+                res = out_chat_config.set_default_embedding_provider("groq")
+                print(f"\n[Success] {res['message']}")
+            else:
+                print("\nInvalid selection.")
+        elif choice in ("3", "4"):
+            provider = "gemini" if choice == "3" else "groq"
             models = SUPPORTED_EMBEDDING_MODELS.get(provider, [])
             print(SEPARATOR)
             print(f" Select {provider.capitalize()} Embedding Model:")
@@ -206,7 +224,7 @@ def models_configuration_flow() -> None:
                 print(f"\n[Success] {res['message']}")
             else:
                 print("\nSelection cancelled or invalid.")
-        elif choice == "4":
+        elif choice == "5":
             break
         else:
             print(" Invalid selection.")

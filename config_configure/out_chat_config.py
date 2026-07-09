@@ -223,3 +223,10 @@ def update_telegram_settings(
         "status": "success",
         "message": "Telegram configuration updated successfully!",
     }
+def set_default_embedding_provider(provider: str) -> dict:
+    """Headless function to switch the global default embedding provider."""
+    config_manager.set_default_embedding_provider(provider)
+    return {
+        "status": "success",
+        "message": f"Default embedding provider changed to {provider.upper()}.",
+    }

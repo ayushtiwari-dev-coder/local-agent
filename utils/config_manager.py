@@ -2,6 +2,8 @@ from utils.config.core import load_config, save_config
 from utils.config.models import (
     get_default_provider,
     set_default_provider,
+    get_default_embedding_provider,
+    set_default_embedding_provider,
     get_active_model,
     set_active_model,
     get_temperature,
