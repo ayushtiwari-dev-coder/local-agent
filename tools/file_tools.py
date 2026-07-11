@@ -11,6 +11,8 @@ import logging
 import utils.config_manager as config_manager
 from security.sandbox_executor import LocalSandboxExecutor
 from tools.core import agent_tool
+import markdown
+from xhtml2pdf import pisa
 logger = logging.getLogger("tools.file_tools")
 
 SANDBOX_ROOT = os.path.abspath(
@@ -110,6 +112,64 @@ def write_files(files: list[dict]) -> dict:
             results[path] = f"Error: Failed to write file: {e}"
 
     return results
+
+
+@agent_tool
+def generate_pdf(markdown_content: str, filename: str) -> str:
+    """
+    Converts markdown text into a beautifully formatted PDF file and saves it to the workspace.
+    """
+    if not filename.lower().endswith('.pdf'):
+        filename += '.pdf'
+        
+    safe_path = _resolve_safe_path(filename)
+    if safe_path is None:
+        return f"Error: Path '{filename}' is outside the allowed workspace."
+        
+    # 1. Auto-Sanitize unsupported Unicode characters to prevent PDF crashes
+    markdown_content = markdown_content.replace('—', '-').replace('–', '-')
+    markdown_content = markdown_content.replace('“', '"').replace('”', '"')
+    markdown_content = markdown_content.replace('‘', "'").replace('’', "'")
+    markdown_content = markdown_content.replace('…', '...')
+        
+    try:
+        # 2. Convert Markdown to HTML WITH table support enabled
+        html_body = markdown.markdown(markdown_content, extensions=['tables', 'fenced_code'])
+        
+        # 3. Wrap in professional CSS for beautiful tables and typography
+        full_html = f"""
+        <html>
+        <head>
+            <style>
+                @page {{ margin: 2cm; }}
+                body {{ font-family: Helvetica, Arial, sans-serif; font-size: 12pt; line-height: 1.6; color: #333333; }}
+                h1, h2, h3 {{ color: #111111; margin-bottom: 10px; }}
+                p {{ margin-bottom: 15px; }}
+                table {{ border-collapse: collapse; width: 100%; margin-bottom: 20px; }}
+                th {{ background-color: #f2f2f2; font-weight: bold; text-align: left; border: 1px solid #dddddd; padding: 8px; }}
+                td {{ border: 1px solid #dddddd; padding: 8px; }}
+                code {{ background-color: #f4f4f4; padding: 2px 4px; font-family: Courier, monospace; font-size: 10pt; }}
+                pre {{ background-color: #f4f4f4; padding: 10px; border: 1px solid #dddddd; }}
+            </style>
+        </head>
+        <body>
+            {html_body}
+        </body>
+        </html>
+        """
+        
+        # 4. Render the PDF
+        with open(safe_path, "wb") as pdf_file:
+            pisa_status = pisa.CreatePDF(full_html, dest=pdf_file)
+            
+        if pisa_status.err:
+            return f"Error: PDF generation completed with internal formatting errors."
+            
+        return f"Success: PDF generated and saved to {filename}"
+        
+    except Exception as e:
+        logger.exception(f"Failed to generate PDF '{filename}': {e}")
+        return f"Error: Failed to generate PDF: {e}"
 
 
  #ACTIVE EXECUTOR (RAM-Free Local Host Mode)

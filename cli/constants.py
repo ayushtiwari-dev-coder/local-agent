@@ -16,6 +16,7 @@ tools       - Show just the tool calls made in this conversation
 /models     - Switch active models/providers on the fly
 /thinking   - Adjust reasoning/thinking budget
 /search     - Search your long-term memories database
+/research   - Trigger Deep Research mode for a specific topic  
 /delete     - Delete current active conversation thread immediately
 help        - Show this list again
 """.strip()

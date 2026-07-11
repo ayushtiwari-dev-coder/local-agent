@@ -1,7 +1,23 @@
-pyTelegramBotAPI
+# Core LLM & API
 google-genai
 groq
+
+# Interfaces & CLI
+pyTelegramBotAPI
 rich
+
+# Utilities & Tokens
 tiktoken
 python-dotenv
+
+# Research & Scraping Tools
+ddgs
+requests
+beautifulsoup4
+
+# PDF Generation Tools
+xhtml2pdf
+markdown
+
+# Testing
 pytest
