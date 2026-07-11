@@ -72,3 +72,38 @@ def test_write_files_deduplication(sandbox_workspace_fixture):
     with open(written_file, "r") as f:
         data = f.read()
     assert data == "latest_data"
+
+# Add this import at the top of tests/test_files_tools_edge_cases.py if not present
+from tools.file_tools import generate_pdf
+
+def test_generate_pdf_success(sandbox_workspace_fixture):
+    """Happy Path: Ensures markdown is converted and saved correctly."""
+    markdown_payload = "# Hello World\nThis is a **bold** test."
+    
+    # Notice we don't pass .pdf, testing the auto-append feature
+    res = generate_pdf(markdown_payload, "test_report")
+    
+    assert "Success" in res
+    assert "test_report.pdf" in res
+    
+    # Verify the file actually exists in the sandbox
+    expected_path = os.path.join(sandbox_workspace_fixture.name, "test_report.pdf")
+    assert os.path.exists(expected_path)
+
+def test_generate_pdf_path_traversal_blocked(sandbox_workspace_fixture):
+    """Security: Ensures the LLM cannot write PDFs outside the sandbox."""
+    res = generate_pdf("# Hacked", "../../../etc/shadow.pdf")
+    
+    assert "Error:" in res
+    assert "outside the allowed workspace" in res
+
+@patch("tools.file_tools.pisa.CreatePDF")
+def test_generate_pdf_internal_crash(mock_create_pdf, sandbox_workspace_fixture):
+    """Error Handling: Ensures library crashes return a clean string to the LLM."""
+    # Force the xhtml2pdf library to crash
+    mock_create_pdf.side_effect = Exception("Simulated xhtml2pdf rendering crash")
+    
+    res = generate_pdf("# Crash Test", "crash_report.pdf")
+    
+    assert "Error: Failed to generate PDF" in res
+    assert "Simulated xhtml2pdf rendering crash" in res

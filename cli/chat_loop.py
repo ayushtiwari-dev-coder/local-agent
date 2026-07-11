@@ -278,6 +278,32 @@ def enter_chat_session(conversation_id: int) -> None:
                 res = in_chat_config.update_thinking_level(pick)
                 print(f"\n[{res['status'].capitalize()}] {res['message']}")
                 continue
+            elif lowered.startswith("/research"):
+                query = user_input[len("/research"):].strip()
+                if not query:
+                    print(" Please provide a research topic. Example: /research quantum computing")
+                    continue
+                
+                # Wrap the query in our strict Deep Research directive
+                research_directive = f"""{query}
+
+                [SYSTEM DIRECTIVE: DEEP RESEARCH MODE ENGAGED]
+                You must act as an exhaustive research analyst. 
+                1. You MUST use the `web_researcher` tool to search for information.
+                2. You MUST use the `web_researcher` tool with action="read" to extract full text from at least 3 to 5 highly relevant URLs.
+                3. You MUST cross-reference the data.
+                4. At the very end of your final response, you MUST include a "Sources" section listing all URLs you read."""
+
+                reset_execution_counters()
+                response_text = engine.send_message(
+                    conversation_id=conversation_id, 
+                    user_text=research_directive, # Pass the wrapped directive
+                    source="cli",
+                    status_callback=cli_status_callback,
+                    approval_callback=cli_approval_callback
+                )
+                print(f"\n Assistant: {response_text}\n")
+                continue
 
             # --- Standard Message Dispatch ---
             reset_execution_counters()
