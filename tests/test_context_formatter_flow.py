@@ -8,7 +8,7 @@ def test_format_context_empty_messages(mock_get_inst):
     """Brutal Test: Formatting an empty list of messages."""
     system_instruction, standardized_messages = format_context([])
     
-    assert "You are an elite, highly efficient" in system_instruction
+    assert "# CORE IDENTITY & OBJECTIVE\nYou are a highly" in system_instruction
     assert standardized_messages == []
 
 @patch("llm.context_formatter.config_manager.get_system_instruction", return_value=None)

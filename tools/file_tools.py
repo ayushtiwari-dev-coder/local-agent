@@ -14,6 +14,8 @@ from tools.core import agent_tool
 import markdown
 from xhtml2pdf import pisa
 logger = logging.getLogger("tools.file_tools")
+import re
+from tools.skeleton_parser import generate_file_skeleton
 
 SANDBOX_ROOT = os.path.abspath(
     os.path.join(os.path.expanduser("~"), ".local_workflow_agent", "workspace")
@@ -170,6 +172,237 @@ def generate_pdf(markdown_content: str, filename: str) -> str:
     except Exception as e:
         logger.exception(f"Failed to generate PDF '{filename}': {e}")
         return f"Error: Failed to generate PDF: {e}"
+    
+@agent_tool
+def get_file_skeleton(path: str) -> str:
+    """
+    Generates a line-numbered table of contents (skeleton) for code and markdown files.
+    Useful for understanding the structure of a large file before reading specific chunks.
+    
+    Args:
+        path: The path to the file.
+    """
+    safe_path = _resolve_safe_path(path)
+    if safe_path is None:
+        return f"Error: Path '{path}' is outside the allowed workspace."
+    if not os.path.exists(safe_path):
+        return f"Error: File '{path}' not found."
+    if not os.path.isfile(safe_path):
+        return f"Error: '{path}' is not a file."
+        
+    try:
+        with open(safe_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+        
+        filename = os.path.basename(safe_path)
+        # CALL THE ORCHESTRATOR
+        skeleton = generate_file_skeleton(content, filename)
+        if not skeleton:
+            return f"No structural skeleton detected for '{filename}'."
+        return skeleton
+    except Exception as e:
+        logger.exception(f"Failed to generate skeleton for '{path}': {e}")
+        return f"Error: Failed to generate skeleton: {e}"
+
+@agent_tool
+def read_file_chunk(path: str, start_line: int, end_line: int) -> str:
+    """
+    Reads a specific range of lines from a file. 
+    CRITICAL: Use this AFTER looking at a file's skeleton to read specific sections without overloading your memory.
+    Lines are 1-indexed.
+    
+    Args:
+        path: The path to the file.
+        start_line: The line number to start reading from (inclusive, starts at 1).
+        end_line: The line number to stop reading at (inclusive).
+    """
+    safe_path = _resolve_safe_path(path)
+    if safe_path is None:
+        return f"Error: Path '{path}' is outside the allowed workspace."
+    if not os.path.exists(safe_path):
+        return f"Error: File '{path}' not found."
+    if not os.path.isfile(safe_path):
+        return f"Error: '{path}' is not a file."
+        
+    try:
+        with open(safe_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = []
+            for i, line in enumerate(f):
+                if i + 1 > end_line:
+                    break
+                if i + 1 >= start_line:
+                    lines.append(f"Line {i + 1}: {line.rstrip()}")
+            
+            if not lines:
+                return f"No content found between lines {start_line} and {end_line}."
+            return "\n".join(lines)
+    except Exception as e:
+        logger.exception(f"Failed to read chunk from '{path}': {e}")
+        return f"Error: Failed to read file chunk: {e}"
+
+@agent_tool
+def search_inside_file(path: str, search_term: str, context_lines: int = 2) -> str:
+    """
+    Searches for an exact string inside a file and returns the matching lines with surrounding context.
+    CRITICAL: Use this when a file has no skeleton, or when you need to find a specific variable, error, or keyword.
+    
+    Args:
+        path: The path to the file.
+        search_term: The exact string to search for (case-insensitive).
+        context_lines: Number of lines to include before and after the match (default 2).
+    """
+    # DEFENSIVE TYPE-GUARD: If the LLM SDK explicitly passes null/None, fallback to default
+    if context_lines is None:
+        context_lines = 2
+    else:
+        context_lines = int(context_lines)
+
+    safe_path = _resolve_safe_path(path)
+    if safe_path is None:
+        return f"Error: Path '{path}' is outside the allowed workspace."
+    if not os.path.exists(safe_path):
+        return f"Error: File '{path}' not found."
+        
+    try:
+        with open(safe_path, "r", encoding="utf-8", errors="replace") as f:
+            all_lines = f.readlines()
+            
+        results = []
+        matched_indices = set()
+        
+        for i, line in enumerate(all_lines):
+            if search_term.lower() in line.lower():
+                start = max(0, i - context_lines)
+                end = min(len(all_lines), i + context_lines + 1)
+                
+                for j in range(start, end):
+                    if j not in matched_indices:
+                        results.append(f"Line {j + 1}: {all_lines[j].rstrip()}")
+                        matched_indices.add(j)
+                results.append("---")
+                
+        if not results:
+            return f"No matches found for '{search_term}' in {path}."
+            
+        return "\n".join(results).strip()
+    except Exception as e:
+        logger.exception(f"Failed to search in '{path}': {e}")
+        return f"Error: Failed to search file: {e}"
+
+@agent_tool
+def list_workspace_directory(max_depth: int = 4) -> str:
+    """
+    Generates a visual, tree-like layout of all folders and files inside the workspace.
+    CRITICAL: Use this at the start of a session to locate files and folders.
+    This prevents path guessing and respects sandbox boundaries.
+    
+    Args:
+        max_depth: How deep to recursively search folders (default is 4).
+    """
+    try:
+        sandbox_root = get_sandbox_root()
+        ignore_dirs = {
+            ".git", ".local_workflow_agent", "__pycache__", 
+            "node_modules", ".venv", "venv", ".pytest_cache", ".idea"
+        }
+        
+        lines = ["Workspace Directory Structure:"]
+        
+        def _build_tree(directory: str, prefix: str = "", depth: int = 1):
+            if depth > max_depth:
+                return
+            try:
+                # Sort items so folders appear first, then files alphabetically
+                items = sorted(
+                    os.listdir(directory), 
+                    key=lambda x: (not os.path.isdir(os.path.join(directory, x)), x.lower())
+                )
+            except Exception as e:
+                lines.append(f"{prefix}└── [Error reading folder: {e}]")
+                return
+
+            for idx, item in enumerate(items):
+                if item in ignore_dirs:
+                    continue
+                
+                path = os.path.join(directory, item)
+                is_last = (idx == len(items) - 1)
+                connector = "└── " if is_last else "├── "
+                
+                if os.path.isdir(path):
+                    lines.append(f"{prefix}{connector}{item}/")
+                    # Prepare prefix for nested directories
+                    new_prefix = prefix + ("    " if is_last else "│   ")
+                    _build_tree(path, new_prefix, depth + 1)
+                else:
+                    lines.append(f"{prefix}{connector}{item}")
+
+        _build_tree(sandbox_root)
+        return "\n".join(lines)
+    except Exception as e:
+        logger.exception(f"Failed to map directory: {e}")
+        return f"Error: Failed to list workspace directory: {e}"
+
+@agent_tool
+def edit_file_chunk(path: str, start_line: int, end_line: int, content: str) -> str:
+    """
+    Surgically replaces a specific range of lines in a file with new content.
+    CRITICAL: Use this instead of write_files when editing existing large files.
+    This saves massive completion tokens and keeps edits precise. Lines are 1-indexed.
+    
+    Args:
+        path: The path to the file inside the workspace.
+        start_line: The 1-based line number where the replacement should begin (inclusive).
+        end_line: The 1-based line number where the replacement should end (inclusive).
+        content: The new text content to insert into the specified line range.
+    """
+    safe_path = _resolve_safe_path(path)
+    if safe_path is None:
+        return f"Error: Path '{path}' is outside the allowed workspace."
+    
+    if not os.path.exists(safe_path):
+        return f"Error: File '{path}' not found. Cannot surgically edit a non-existent file."
+    
+    if not os.path.isfile(safe_path):
+        return f"Error: '{path}' is not a file."
+
+    if start_line < 1 or end_line < start_line:
+        return f"Error: Invalid line range {start_line} to {end_line}. Line numbers must be positive and start_line <= end_line."
+
+    try:
+        # 1. Read existing lines
+        with open(safe_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+
+        total_lines = len(lines)
+        
+        # 2. Adjust boundaries defensively
+        # Convert 1-indexed input to 0-indexed list indices
+        idx_start = start_line - 1
+        idx_end = end_line # Slice is exclusive at end, which matches end_line inclusive in 1-index
+
+        # Handle edge case where targeted start is completely out of bounds
+        if idx_start > total_lines:
+            return f"Error: start_line {start_line} is out of bounds. The file only has {total_lines} lines."
+
+        # 3. Format incoming content into lines
+        # Ensure we maintain line endings
+        new_lines = [line + "\n" if not line.endswith("\n") else line for line in content.splitlines()]
+        if content.endswith("\n") or not content:
+            new_lines.append("\n")
+
+        # 4. Perform the surgical replacement
+        lines[idx_start:idx_end] = new_lines
+
+        # 5. Write the file back to disk
+        with open(safe_path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+
+        return f"Success: Surgically updated lines {start_line} through {end_line} in '{path}' successfully."
+        
+    except Exception as e:
+        logger.exception(f"Failed to surgically edit file '{path}': {e}")
+        return f"Error: Failed to edit file chunk: {e}"
 
 
  #ACTIVE EXECUTOR (RAM-Free Local Host Mode)
