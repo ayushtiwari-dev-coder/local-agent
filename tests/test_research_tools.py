@@ -5,6 +5,19 @@ import requests
 from unittest.mock import patch, MagicMock, mock_open,ANY
 from tools.research_tools import _search_web, _read_urls, web_researcher
 
+import os
+import tempfile
+
+@pytest.fixture(autouse=True)
+def sandbox_research_fixture():
+    """
+    Safely sandboxes the get_sandbox_root function for all research tools tests,
+    preventing any PermissionError writes to the host file system.
+    """
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Patch get_sandbox_root inside research_tools to return our safe temp folder
+        with patch("tools.research_tools.get_sandbox_root", return_value=temp_dir):
+            yield temp_dir
 
 @patch("tools.research_tools.DDGS")
 def test_search_web_success(mock_ddgs):
