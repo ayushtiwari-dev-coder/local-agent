@@ -46,6 +46,7 @@ DEFAULT_CONFIG = {
             "allowed_user_ids": [],
         },
         "cli": {"log_truncation_limit": 500},
+        "max_concurrent_chats":3,
     },
 }
 

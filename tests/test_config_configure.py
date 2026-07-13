@@ -151,3 +151,15 @@ def test_validate_and_set_api_key_groq_failure(mock_groq_client):
         )
         assert res_force["status"] == "success"
         mock_set_key.assert_called_once_with("groq", "bad_key")
+
+@patch("config_configure.out_chat_config.config_manager")
+def test_update_max_concurrent_chats(mock_cm):
+    """Ensures max concurrent chats updates correctly."""
+    # Mock the getter to return the new value for the success message
+    mock_cm.get_max_concurrent_chats.return_value = 4
+    
+    res = out_chat.update_max_concurrent_chats(4)
+    
+    assert res["status"] == "success"
+    assert "updated to 4" in res["message"]
+    mock_cm.set_max_concurrent_chats.assert_called_once_with(4)

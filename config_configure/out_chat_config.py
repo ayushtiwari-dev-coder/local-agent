@@ -230,3 +230,10 @@ def set_default_embedding_provider(provider: str) -> dict:
         "status": "success",
         "message": f"Default embedding provider changed to {provider.upper()}.",
     }
+def update_max_concurrent_chats(count: int) -> dict:
+    """Headless function to update the maximum concurrent chats limit."""
+    config_manager.set_max_concurrent_chats(count)
+    return {
+        "status": "success",
+        "message": f"Maximum concurrent chats successfully updated to {config_manager.get_max_concurrent_chats()}!",
+    }

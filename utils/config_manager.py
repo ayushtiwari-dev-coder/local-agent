@@ -34,6 +34,9 @@ from utils.config.settings import (
     set_workspace_path,
     get_telegram_config,
     set_telegram_config,
+
+    get_max_concurrent_chats,
+    set_max_concurrent_chats,
     # DOCKER RE-ACTIVATION REFERENCE:
     # If Docker sandboxing is enabled, uncomment these imported functions:
     # get_max_active_containers,

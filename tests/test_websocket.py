@@ -1,16 +1,15 @@
 # tests/test_websocket.py
-import ast
 import json
 import pytest
 import threading
+import time
 from unittest.mock import patch, MagicMock
 from fastapi import FastAPI, WebSocketDisconnect
 from fastapi.testclient import TestClient
-import time
 
-# Target the singular "websocket" module based on your naming decision
+# Import the router and state managers
 from interfaces.websocket import router, active_threads, manager
-from managers.approval_manager import active_approvals, wait_for_decision, resolve_decision
+from managers.approval_manager import active_approvals
 
 app = FastAPI()
 app.include_router(router)
@@ -18,8 +17,8 @@ app.include_router(router)
 @pytest.fixture(autouse=True)
 def reset_shared_state():
     """
-    Strictly resets and cleans up shared concurrent states 
-    before and after every test execution to prevent test poisoning.
+    Strictly resets shared concurrent states before and after every test 
+    to prevent test poisoning and zombie threads.
     """
     active_threads.clear()
     active_approvals.clear()
@@ -31,333 +30,345 @@ def reset_shared_state():
 
 
 # =====================================================================
-# 1. SECURITY & HANDSHAKE BOUNDARY TESTS
+# 1. HANDSHAKE & SECURITY TESTS
 # =====================================================================
 
 @patch("interfaces.websocket.config_manager")
-def test_handshake_and_config_negotiation(mock_config):
-    """
-    Asserts that the initial HTTP handshake properly validates, upgrades, 
-    and immediately pushes the active system configuration to the UI.
-    """
-    mock_config.get_provider_api_key.return_value = "local_vault_key"
-    mock_config.get_default_provider.return_value = "gemini"
-    mock_config.get_active_model.return_value = "gemini-3.1-flash-lite"
-    mock_config.get_temperature.return_value = 0.2
-
-    client = TestClient(app)
-    with client.websocket_connect("/ws/101?token=local_vault_key") as ws:
-        # Check initial welcome packet
-        data = ws.receive_json()
-        assert data["type"] == "connection_established"
-        assert data["payload"]["session_id"] == "session_101"
-        assert data["payload"]["active_provider"] == "gemini"
-        assert data["payload"]["active_model"] == "gemini-3.1-flash-lite"
-        assert data["payload"]["temperature"] == 0.2
-
-
-@patch("interfaces.websocket.config_manager")
-def test_invalid_handshake_token_rejection(mock_config):
-    """
-    Asserts that connection attempts using mismatched credentials are 
-    instantly rejected at the HTTP handshake level with close code 4001.
-    """
-    mock_config.get_provider_api_key.return_value = "secure_token_1"
+def test_global_handshake_security(mock_config):
+    """Edge Case: Rejects invalid tokens instantly with code 4001."""
+    mock_config.get_provider_api_key.return_value = "secure_token_123"
     client = TestClient(app)
 
-    # Catch the exact WebSocketDisconnect exception raised by FastAPI's TestClient
     with pytest.raises(WebSocketDisconnect) as exc:
-        with client.websocket_connect("/ws/101?token=unauthorized_token"):
+        with client.websocket_connect("/ws/main?token=wrong_token"):
             pass
             
-    # Verify the server closed it specifically with our 4001 unauthorized code
     assert exc.value.code == 4001
 
 
 # =====================================================================
-# 2. CONCURRENCY & THREAD-BLOCKING BOUNDARY TESTS
+# 2. DATA FETCHING (BOOT, PAGINATION, SEARCH)
 # =====================================================================
 
 @patch("interfaces.websocket.config_manager")
-def test_concurrent_execution_block(mock_config):
-    """
-    Asserts that if an agent thread is already running for a conversation ID,
-    any secondary user execution requests are instantly rejected on the same socket.
-    """
+@patch("interfaces.websocket.get_conversations_paginated")
+def test_init_session_bootup(mock_get_convs, mock_config):
+    """Happy Path: Boot sequence returns session state and recent threads."""
     mock_config.get_provider_api_key.return_value = None
     mock_config.get_default_provider.return_value = "gemini"
-    mock_config.get_active_model.return_value = "gemini-3.1-flash-lite"
-    mock_config.get_temperature.return_value = 0.2
+    mock_config.get_active_model.return_value = "gemini-3.1"
+    mock_config.get_temperature.return_value = 0.5
+    
+    mock_get_convs.return_value = [{"id": 1, "title": "Test Chat"}]
 
     client = TestClient(app)
-
-    # Simulate an active working thread already registered for conversation 42
-    active_threads[42] = MagicMock()
-
-    with client.websocket_connect("/ws/42") as ws:
-        ws.receive_json()  # Consume handshake welcome
+    with client.websocket_connect("/ws/main") as ws:
+        ws.send_json({"type": "init_session"})
         
-        # Dispatch a second message
+        response = ws.receive_json()
+        assert response["type"] == "session_state"
+        assert response["payload"]["active_provider"] == "gemini"
+        assert response["payload"]["temperature"] == 0.5
+        assert len(response["payload"]["recent_threads"]) == 1
+
+
+@patch("interfaces.websocket.config_manager")
+@patch("interfaces.websocket.get_messages_paginated")
+def test_load_history_pagination(mock_get_msgs, mock_config):
+    """Happy Path: Infinite scroll pagination requests return correct chunks."""
+    mock_config.get_provider_api_key.return_value = None
+    mock_get_msgs.return_value = [{"id": 99, "role": "user", "content": "Old message"}]
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/main") as ws:
         ws.send_json({
-            "type": "user_message",
-            "payload": {"content": "Execute another command."}
+            "type": "load_history",
+            "payload": {"conversation_id": 42, "before_id": 100}
         })
         
-        # Verify execution is blocked
+        response = ws.receive_json()
+        assert response["type"] == "history_loaded"
+        assert response["conversation_id"] == 42
+        assert response["payload"]["messages"][0]["id"] == 99
+        
+        mock_get_msgs.assert_called_once_with(42, before_id=100, limit=20)
+
+
+@patch("interfaces.websocket.config_manager")
+@patch("interfaces.websocket.search_conversations")
+def test_search_threads(mock_search, mock_config):
+    """Happy Path: Live sidebar search returns filtered threads."""
+    mock_config.get_provider_api_key.return_value = None
+    mock_search.return_value = [{"id": 5, "title": "Quantum Physics"}]
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/main") as ws:
+        ws.send_json({
+            "type": "search_threads",
+            "payload": {"query": "Quantum"}
+        })
+        
+        response = ws.receive_json()
+        assert response["type"] == "search_results"
+        assert response["payload"]["results"][0]["title"] == "Quantum Physics"
+
+
+# =====================================================================
+# 3. CONCURRENCY & MULTITASKING LIMITS
+# =====================================================================
+
+@patch("interfaces.websocket.config_manager")
+def test_concurrency_limit_reached(mock_config):
+    """Edge Case: Blocks execution if max_concurrent_chats is reached."""
+    mock_config.get_provider_api_key.return_value = None
+    mock_config.get_max_concurrent_chats.return_value = 2  # Limit is 2
+
+    # Simulate 2 active chats already running
+    active_threads[1] = MagicMock()
+    active_threads[2] = MagicMock()
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/main") as ws:
+        # Try to start a 3rd chat
+        ws.send_json({
+            "type": "user_message",
+            "payload": {"conversation_id": 3, "content": "Hello"}
+        })
+        
         response = ws.receive_json()
         assert response["type"] == "execution_error"
+        assert response["conversation_id"] == 3
+        assert response["payload"]["error_code"] == "CONCURRENCY_LIMIT_REACHED"
+
+
+@patch("interfaces.websocket.config_manager")
+def test_double_execution_blocked(mock_config):
+    """Edge Case: Blocks sending a message to a chat that is already generating."""
+    mock_config.get_provider_api_key.return_value = None
+    mock_config.get_max_concurrent_chats.return_value = 5
+
+    # Simulate Chat 42 is already running
+    active_threads[42] = MagicMock()
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/main") as ws:
+        ws.send_json({
+            "type": "user_message",
+            "payload": {"conversation_id": 42, "content": "Spam click!"}
+        })
+        
+        response = ws.receive_json()
+        assert response["type"] == "execution_error"
+        assert response["conversation_id"] == 42
         assert response["payload"]["error_code"] == "CONCURRENT_RUN_BLOCKED"
 
 
 # =====================================================================
-# 3. ROBUST PARSING & SECURITY SANITIZATION TESTS
+# 4. CORE REACT LOOP & THREAD LIFECYCLE
 # =====================================================================
 
 @patch("interfaces.websocket.config_manager")
-def test_websocket_status_callback_ast_parsing_safety(mock_config):
-    """
-    Verifies that the callback string parser cleanly extracts tool parameters, 
-    but safely drops malicious code injections using ast.literal_eval.
-    """
+@patch("interfaces.websocket.create_conversation")
+@patch("interfaces.websocket.AgentEngine")
+def test_new_chat_creation_and_execution(mock_engine_class, mock_create_conv, mock_config):
+    """Happy Path: Sending a message with no ID creates a DB record and runs."""
     mock_config.get_provider_api_key.return_value = None
-    client = TestClient(app)
-
-    # Mocking active connection
-    mock_ws = MagicMock()
-    manager.active_connections[99] = mock_ws
-
-    from interfaces.websocket import websocket_status_callback
-    loop = MagicMock()
-
-    # Case A: Standard safe dict string literal
-    safe_status = "Executing tool 'write_files' with arguments:\n{'files': [{'path': 'test.py'}]}"
-    websocket_status_callback(loop, 99, safe_status)
+    mock_config.get_max_concurrent_chats.return_value = 5
     
-    # Assert asyncio schedules the message
-    loop.call_soon_threadsafe.assert_called()
+    # Mock DB creation
+    mock_create_conv.return_value = {"id": 99, "title": "Write a python script..."}
 
-    # Case B: Exploit injection payload targeting evaluation engine
-    exploit_status = "Executing tool 'write_files' with arguments:\n__import__('os').system('rm -rf /')"
+    # Mock Engine
+    mock_engine = MagicMock()
+    mock_engine_class.return_value = mock_engine
     
-    # Execute callback - ast.literal_eval must catch this and fall back to empty arguments
-    # instead of crashing the thread or executing the code.
-    try:
-        websocket_status_callback(loop, 99, exploit_status)
-    except Exception as e:
-        pytest.fail(f"ast.literal_eval threw an uncaught error: {e}")
-
-
-# =====================================================================
-# 4. STATEFUL HUMAN-IN-THE-LOOP (HITL) WORKFLOW TESTS
-# =====================================================================
-
-@patch("interfaces.websocket.config_manager")
-@patch("interfaces.websocket.AgentEngine")
-def test_stateful_approval_and_unfreeze_flow(mock_engine_class, mock_config):
-    """
-    Rigorous Turn-by-Turn test. Simulates the agent hitting an unsafe tool, 
-    dispatching an approval requirement, freezing the background thread, 
-    receiving a client approval over WebSocket, and unfreezing to complete.
-    """
-    import time
-    mock_config.get_provider_api_key.return_value = None
-    mock_config.get_default_provider.return_value = "gemini"
-    mock_config.get_active_model.return_value = "gemini-3.1-flash-lite"
-    mock_config.get_temperature.return_value = 0.2
-
-    mock_engine = MagicMock()
-    mock_engine_class.return_value = mock_engine
-
-    thread_execution_outcome = {"executed": False}
-
-    def mock_react_send_message(conversation_id, user_text, source, status_callback, approval_callback):
-        # FIX: Emit the status update to unfreeze the ws.receive_json() waiting for "thought_start"
-        if status_callback:
-            status_callback("Generating thoughts... [Turn #1]")
-
-        # 1. Trigger the unsafe tool callback (mimicking handle_permissions)
-        is_approved = approval_callback("run_terminal_command", {"command": "npm install"}, conversation_id)
-        
-        if is_approved:
-            thread_execution_outcome["executed"] = True
-            return "Command ran successfully."
-        else:
-            thread_execution_outcome["executed"] = False
-            return "Execution denied by user."
-
-    mock_engine.send_message.side_effect = mock_react_send_message
-    client = TestClient(app)
-
-    with client.websocket_connect("/ws/1") as ws:
-        ws.receive_json()  # Consume handshake welcome
-        
-        # Send user prompt
-        ws.send_json({
-            "type": "user_message",
-            "payload": {"content": "Install node dependencies."}
-        })
-        
-        # Verify thought start event dispatched
-        assert ws.receive_json()["type"] == "thought_start"
-        
-        # Verify approval prompt was dispatched to UI
-        approval_event = ws.receive_json()
-        assert approval_event["type"] == "approval_required"
-        assert approval_event["payload"]["tool_name"] == "run_terminal_command"
-        assert approval_event["payload"]["arguments"] == {"command": "npm install"}
-
-        # DYNAMIC POLLING: Check every 50ms up to 3 seconds for the registration.
-        # This completely eliminates timing issues on slow or busy CPUs.
-        registered = False
-        for _ in range(60):
-            if 1 in active_approvals:
-                registered = True
-                break
-            time.sleep(0.05)
-            
-        assert registered is True, "Background thread failed to register approval event in time."
-
-        # Send user approval response over the active WebSocket
-        ws.send_json({
-            "type": "approval_response",
-            "payload": {"approved": True}
-        })
-
-        # Wait for background thread to wake up and finish execution
-        msg_chunk = ws.receive_json()
-        assert msg_chunk["type"] == "message_chunk"
-        assert msg_chunk["payload"]["chunk"] == "Command ran successfully."
-        
-        complete_event = ws.receive_json()
-        assert complete_event["type"] == "execution_completed"
-        
-        # Assert thread state unfroze with positive resolution
-        assert thread_execution_outcome["executed"] is True
-
-
-@patch("interfaces.websocket.config_manager")
-@patch("interfaces.websocket.AgentEngine")
-def test_user_disconnect_during_freeze_teardown(mock_engine_class, mock_config):
-    """
-    Asserts that if the WebSocket drops (e.g. user closes browser tab) 
-    while the background thread is frozen waiting on approval, the thread is 
-    immediately unfrozen and exited to prevent memory leaks and zombie threads.
-    """
-    import time
-    mock_config.get_provider_api_key.return_value = None
-    mock_config.get_default_provider.return_value = "gemini"
-    mock_config.get_active_model.return_value = "gemini-3.1-flash-lite"
-    mock_config.get_temperature.return_value = 0.2
-
-    mock_engine = MagicMock()
-    mock_engine_class.return_value = mock_engine
-
-    thread_exit_status = {"exited": False}
-
-    def mock_react_loop(conversation_id, user_text, source, status_callback, approval_callback):
-        # FIX: Emit the status update to unfreeze the ws.receive_json() waiting for "thought_start"
-        if status_callback:
-            status_callback("Generating thoughts... [Turn #1]")
-
-        # Freeze here waiting for decision
-        approval_callback("run_terminal_command", {"command": "delete"}, conversation_id)
-        
-        # Once unblocked, record exit
-        thread_exit_status["exited"] = True
-        return "Aborted"
-
-    mock_engine.send_message.side_effect = mock_react_loop
-    client = TestClient(app)
-
-    with client.websocket_connect("/ws/88") as ws:
-        ws.receive_json()  # Welcome
-        
-        ws.send_json({
-            "type": "user_message",
-            "payload": {"content": "Run danger command"}
-        })
-        
-        ws.receive_json()  # thought_start
-        ws.receive_json()  # approval_required
-
-        # DYNAMIC POLLING: Wait up to 3 seconds for Antarctica to fall asleep
-        registered = False
-        for _ in range(60):
-            if 88 in active_approvals:
-                registered = True
-                break
-            time.sleep(0.05)
-            
-        assert registered is True, "Background thread failed to register before disconnect."
-        
-        # Simulate browser disconnect (Tab closed)
-        ws.close()
-
-    # DYNAMIC POLLING: Give the OS up to 2 seconds to execute the thread cleanup
-    exited = False
-    for _ in range(40):
-        if thread_exit_status["exited"]:
-            exited = True
-            break
-        time.sleep(0.05)
-
-    # The disconnect should have triggered clean-up and immediately unfrozen the thread
-    assert 88 not in active_approvals
-    assert exited is True, "Background thread failed to exit gracefully after disconnect."
-
-
-@patch("interfaces.websocket.config_manager")
-@patch("interfaces.websocket.AgentEngine")
-def test_agent_workflow_exception_handling(mock_engine_class, mock_config):
-    """
-    Asserts that unexpected crashes inside the Agent thread (e.g. API down, db error)
-    are caught and pushed gracefully to the UI without crashing the main FastAPI process.
-    """
-    import time # Ensure time is imported
-    mock_config.get_provider_api_key.return_value = None
-    mock_config.get_default_provider.return_value = "gemini"
-    mock_config.get_active_model.return_value = "gemini-3.1-flash-lite"
-    mock_config.get_temperature.return_value = 0.2
-
-    mock_engine = MagicMock()
-    mock_engine_class.return_value = mock_engine
-
-    # Use a wrapper function so the mock emits thought_start before raising the crash
-    def mock_crashing_send_message(*args, **kwargs):
+    def mock_send_message(*args, **kwargs):
         status_cb = kwargs.get("status_callback")
         if status_cb:
             status_cb("Generating thoughts...")
-        raise RuntimeError("Gemini API connection timeout.")
-
-    # Simulate API crash
-    mock_engine.send_message.side_effect = mock_crashing_send_message
+        return "Final Answer"
+        
+    mock_engine.send_message.side_effect = mock_send_message
 
     client = TestClient(app)
-
-    with client.websocket_connect("/ws/99") as ws:
-        ws.receive_json()  # Welcome
-        
+    with client.websocket_connect("/ws/main") as ws:
+        # Send message with NO conversation_id
         ws.send_json({
             "type": "user_message",
-            "payload": {"content": "Execute workflow"}
+            "payload": {"content": "Write a python script"}
         })
         
-        ws.receive_json()  # thought_start
+        # 1. Expect conversation_created event
+        creation_event = ws.receive_json()
+        assert creation_event["type"] == "conversation_created"
+        assert creation_event["conversation_id"] == 99
         
-        # Receive the gracefully mapped execution error
-        response = ws.receive_json()
+        # 2. Expect thought_start
+        thought_event = ws.receive_json()
+        assert thought_event["type"] == "thought_start"
+        assert thought_event["conversation_id"] == 99
         
-        assert response["type"] == "execution_error"
-        assert response["payload"]["error_code"] == "AGENT_EXECUTION_FAILED"
-        assert "Gemini API connection timeout." in response["payload"]["message"]
+        # 3. Expect message_chunk
+        chunk_event = ws.receive_json()
+        assert chunk_event["type"] == "message_chunk"
+        assert chunk_event["payload"]["chunk"] == "Final Answer"
         
-        # DYNAMIC POLLING: Give the background thread up to 2 seconds to hit its finally: block
+        # 4. Expect completion and thread_freed
+        assert ws.receive_json()["type"] == "execution_completed"
+        assert ws.receive_json()["type"] == "thread_freed"
+
+        # DYNAMIC POLLING: Ensure thread cleans up safely
         cleaned_up = False
         for _ in range(40):
             if 99 not in active_threads:
                 cleaned_up = True
                 break
             time.sleep(0.05)
-            
-        # Verify clean up removed the conversation lock
-        assert cleaned_up is True, f"Thread cleanup failed! active_threads still holds: {active_threads}"
+        assert cleaned_up is True, "Thread failed to clean up from active_threads dictionary."
+
+
+@patch("interfaces.websocket.config_manager")
+@patch("interfaces.websocket.AgentEngine")
+def test_human_in_the_loop_approval_flow(mock_engine_class, mock_config):
+    """Rigorous Test: Engine freezes, asks for UI approval, unfreezes, and finishes."""
+    mock_config.get_provider_api_key.return_value = None
+    mock_config.get_max_concurrent_chats.return_value = 5
+
+    mock_engine = MagicMock()
+    mock_engine_class.return_value = mock_engine
+
+    def mock_react_send_message(*args, **kwargs):
+        approval_cb = kwargs.get("approval_callback")
+        # Trigger the freeze
+        is_approved = approval_cb("run_terminal_command", {"cmd": "ls"}, 42)
+        if is_approved:
+            return "Command executed."
+        return "Command denied."
+
+    mock_engine.send_message.side_effect = mock_react_send_message
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/main") as ws:
+        ws.send_json({
+            "type": "user_message",
+            "payload": {"conversation_id": 42, "content": "Run ls"}
+        })
+        
+        # 1. Expect Approval Request
+        approval_req = ws.receive_json()
+        assert approval_req["type"] == "approval_required"
+        assert approval_req["conversation_id"] == 42
+        assert approval_req["payload"]["tool_name"] == "run_terminal_command"
+
+        # -----------------------------------------------------------------
+        # ANTI-RACE-CONDITION GUARD
+        # The test client is so fast it will reply before the background OS 
+        # thread finishes setting up the lock dictionary. Wait for the lock!
+        # -----------------------------------------------------------------
+        lock_ready = False
+        for _ in range(40):
+            if 42 in active_approvals:
+                lock_ready = True
+                break
+            time.sleep(0.05)
+        assert lock_ready is True, "Background thread failed to register lock!"
+
+        # 2. Send Approval Response
+        ws.send_json({
+            "type": "approval_response",
+            "payload": {"conversation_id": 42, "approved": True}
+        })
+
+        # 3. Expect Completion
+        chunk = ws.receive_json()
+        assert chunk["type"] == "message_chunk"
+        assert chunk["payload"]["chunk"] == "Command executed."
+        
+        assert ws.receive_json()["type"] == "execution_completed"
+        assert ws.receive_json()["type"] == "thread_freed"
+
+
+# =====================================================================
+# 5. EXCEPTION ISOLATION & DISCONNECTS
+# =====================================================================
+
+@patch("interfaces.websocket.config_manager")
+@patch("interfaces.websocket.AgentEngine")
+def test_agent_crash_isolation(mock_engine_class, mock_config):
+    """Edge Case: If the LLM API crashes, it sends an error but doesn't crash the server."""
+    mock_config.get_provider_api_key.return_value = None
+    mock_config.get_max_concurrent_chats.return_value = 5
+
+    mock_engine = MagicMock()
+    mock_engine_class.return_value = mock_engine
+    mock_engine.send_message.side_effect = Exception("Groq API 503 Service Unavailable")
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/main") as ws:
+        ws.send_json({
+            "type": "user_message",
+            "payload": {"conversation_id": 77, "content": "Crash me"}
+        })
+        
+        # Expect graceful error mapping
+        error_event = ws.receive_json()
+        assert error_event["type"] == "execution_error"
+        assert error_event["conversation_id"] == 77
+        assert error_event["payload"]["error_code"] == "AGENT_EXECUTION_FAILED"
+        assert "Groq API 503" in error_event["payload"]["message"]
+        
+        # Ensure thread is freed even on crash
+        assert ws.receive_json()["type"] == "thread_freed"
+
+
+@patch("interfaces.websocket.config_manager")
+@patch("interfaces.websocket.AgentEngine")
+def test_disconnect_releases_zombie_approvals(mock_engine_class, mock_config):
+    """Edge Case: If user closes browser during an approval freeze, thread is killed."""
+    mock_config.get_provider_api_key.return_value = None
+    mock_config.get_max_concurrent_chats.return_value = 5
+
+    mock_engine = MagicMock()
+    mock_engine_class.return_value = mock_engine
+
+    def mock_react_send_message(*args, **kwargs):
+        approval_cb = kwargs.get("approval_callback")
+        approval_cb("run_terminal_command", {"cmd": "rm -rf /"}, 88)
+        return "Aborted"
+
+    mock_engine.send_message.side_effect = mock_react_send_message
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/main") as ws:
+        ws.send_json({
+            "type": "user_message",
+            "payload": {"conversation_id": 88, "content": "Delete everything"}
+        })
+        
+        # Wait for approval prompt
+        assert ws.receive_json()["type"] == "approval_required"
+        
+        # -----------------------------------------------------------------
+        # ANTI-RACE-CONDITION GUARD
+        # Wait for the lock to be created before simulating the disconnect
+        # -----------------------------------------------------------------
+        lock_ready = False
+        for _ in range(40):
+            if 88 in active_approvals:
+                lock_ready = True
+                break
+            time.sleep(0.05)
+        assert lock_ready is True, "Background thread failed to register lock!"
+
+        # Simulate user closing the tab
+        ws.close()
+
+    # DYNAMIC POLLING: Give the OS time to run the disconnect cleanup
+    cleaned_up = False
+    for _ in range(40):
+        if 88 not in active_approvals and 88 not in active_threads:
+            cleaned_up = True
+            break
+        time.sleep(0.05)
+
+    assert cleaned_up is True, "Disconnect failed to release the zombie thread."

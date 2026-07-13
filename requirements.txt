@@ -1,23 +1,44 @@
-# Core LLM & API
-google-genai
-groq
+# =====================================================================
+# Web Framework & Real-Time Communication
+# =====================================================================
+fastapi>=0.100.0
+uvicorn>=0.20.0
+websockets>=11.0
 
-# Interfaces & CLI
-pyTelegramBotAPI
-rich
+# =====================================================================
+# LLM Providers & SDKs
+# =====================================================================
+google-genai>=0.1.0       # Unified SDK used for 'from google import genai'
+groq>=0.9.0               # Official Groq SDK client [6]
 
-# Utilities & Tokens
-tiktoken
-python-dotenv
+# =====================================================================
+# Interfaces & Integrations
+# =====================================================================
+pyTelegramBotAPI>=4.12.0  # Underlies 'import telebot' in telegram_bot.py [39]
+docker>=6.1.0             # Required if activating the optional Docker Sandboxes [75]
 
-# Research & Scraping Tools
-ddgs
-requests
-beautifulsoup4
+# =====================================================================
+# Text Processing & Utilities
+# =====================================================================
+tiktoken>=0.5.0           # Local token estimator for sliding context window logic [65]
+rich>=13.0.0              # Rich terminal layout and status callback panel rendering [5]
+python-dotenv>=1.0.0      # Secure local system .env file configuration parser [178]
 
-# PDF Generation Tools
-xhtml2pdf
-markdown
+# =====================================================================
+# Document Processing & PDF Conversions
+# =====================================================================
+markdown>=3.4.0           # Converts workspace markdown drafts to raw HTML [162]
+xhtml2pdf>=0.2.11         # Underlies 'pisa.CreatePDF' for exporting workspaces [162]
 
-# Testing
-pytest
+# =====================================================================
+# Research Tools & Web Scraping
+# =====================================================================
+requests>=2.31.0          # Handles HTTP connections to read target research URLs [172]
+beautifulsoup4>=4.12.0    # Deterministic cleaner to parse main HTML body segments [172]
+ddgs>=9.10.0              # Free DuckDuckGo Search client (renamed from duckduckgo_search)
+
+# =====================================================================
+# Testing Framework & Mocking
+# =====================================================================
+pytest>=7.4.0             # Core unit and integration test runner [121]
+httpx>=0.24.0             # Required by FastAPI's TestClient to run WebSocket testing [156]

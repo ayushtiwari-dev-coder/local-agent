@@ -158,6 +158,19 @@ def set_telegram_config(bot_token: str, allowed_user_ids: list) -> None:
         int(uid) for uid in allowed_user_ids if str(uid).isdigit()
     ]
     save_config(config)
+
+def get_max_concurrent_chats() -> int:
+    """Gets the maximum number of conversations that can generate simultaneously."""
+    config = load_config()
+    return int(config["settings"].get("max_concurrent_chats", 3))
+
+def set_max_concurrent_chats(count: int) -> None:
+    """Sets the maximum number of concurrent generating conversations."""
+    config = load_config()
+    config["settings"]["max_concurrent_chats"] = max(1, int(count))
+    save_config(config)
+
+    
 # Add to the bottom of utils/config/settings.py
 
 # def get_max_active_containers() -> int:
