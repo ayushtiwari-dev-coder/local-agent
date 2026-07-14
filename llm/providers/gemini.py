@@ -1,15 +1,18 @@
-from typing import List, Dict, Any, Callable
+# llm/providers/gemini.py
+
+from typing import List, Dict, Any, Callable, Generator
 from google import genai
 from google.genai import types
+import json
+
 from ..base_provider import BaseLLMProvider
-from ..schemas import LLMResponse, ToolCall
+from ..schemas import LLMResponse, ToolCall, StreamChunk
 from utils.native_types_helpers import _to_native_types
 from llm.context_formatter import format_context
 from llm.generate_with_retry import generate_with_retry, is_quota_error
 from engine.thinking_configure import get_thinking_config
 from utils.config_manager import get_thinking_level
 import utils.config_manager as config_manager
-
 
 class GeminiProvider(BaseLLMProvider):
     def __init__(self, api_key: str, model_name: str):
@@ -50,7 +53,7 @@ class GeminiProvider(BaseLLMProvider):
 
                 if msg.get("tool_calls"):
                     for tc in msg["tool_calls"]:
-                        # SAFELY handle both dicts (from DB) and ToolCall objects (from tests)
+                        # SAFELY handle both dicts (from DB) and ToolCall objects
                         if isinstance(tc, dict):
                             tc_name = tc.get("name")
                             tc_args = tc.get("args")
@@ -59,17 +62,16 @@ class GeminiProvider(BaseLLMProvider):
                             tc_name = getattr(tc, "name", None)
                             tc_args = getattr(tc, "args", None)
                             metadata = getattr(tc, "metadata", {}) or {}
-                            
+
                         fc_dict = {"name": tc_name, "args": tc_args}
-                        
                         if "id" in metadata:
                             fc_dict["id"] = metadata["id"]
-                            
+
                         part_dict = {"function_call": fc_dict}
-                        
+
                         if "thought_signature" in metadata:
                             part_dict["thought_signature"] = metadata["thought_signature"]
-                            
+
                         parts.append(part_dict)
 
                 if parts:
@@ -95,101 +97,89 @@ class GeminiProvider(BaseLLMProvider):
                 return [response.embeddings.values]
             return [emb.values for emb in response.embeddings]
         except Exception as e:
-            # Raise a clean error to be caught by the tool executor
             raise RuntimeError(f"Gemini Embedding API failed: {str(e)}")
 
     def generate_content(
-        self,
-        messages: List[Dict[str, Any]],
-        tools: List[Callable],
-        system_instruction: str = "",
-        **kwargs,
-    ) -> LLMResponse:
-        # 1. Extract app-wide logic using your new file!
+        self, messages: List[Dict[str, Any]], tools: List[Callable], system_instruction: str = "", **kwargs
+    ) -> Generator[StreamChunk, None, None]:
+        
+        # 1. Extract app-wide logic
         db_sys_inst, standard_msgs = format_context(messages)
         final_system_instruction = f"{system_instruction}\n{db_sys_inst}".strip()
+        
         # 2. Translate to Gemini format
         gemini_messages = self.format_messages(standard_msgs)
+        
         # 3. Build Gemini configuration
         config_params = {
             "automatic_function_calling": types.AutomaticFunctionCallingConfig(
                 disable=True
             )
         }
+        
         if final_system_instruction:
             config_params["system_instruction"] = final_system_instruction
+            
         if tools:
             config_params["tools"] = tools
 
         # Dynamically retrieve and apply the active thinking level
-
         active_thinking_level = config_manager.get_thinking_level()
         thinking_cfg = get_thinking_config(self.model_name, level=active_thinking_level)
-
+        
         if thinking_cfg:
             config_params["thinking_config"] = thinking_cfg
+            
         config = types.GenerateContentConfig(**config_params)
 
         def make_gemini_request():
-            return self.client.models.generate_content(
+            # CHANGED: Now uses generate_content_stream
+            return self.client.models.generate_content_stream(
                 model=self.model_name, contents=gemini_messages, config=config
             )
 
         # 4. Use the generic retry template
-        response = generate_with_retry(
+        stream = generate_with_retry(
             request_fn=make_gemini_request,
             is_quota_error_fn=is_quota_error,
             status_callback=kwargs.get("status_callback"),
             max_attempts=3,
         )
-        return self._parse_response(response)
 
-    def _parse_response(self, response: Any) -> LLMResponse:
-        """Parses native Gemini protobuf responses into standardized LLMResponse schema."""
-        prompt_tokens = (
-            response.usage_metadata.prompt_token_count
-            if getattr(response, "usage_metadata", None)
-            else 0
-        )
-        completion_tokens = (
-            response.usage_metadata.candidates_token_count
-            if getattr(response, "usage_metadata", None)
-            else 0
-        )
+        # 5. Parse and yield chunks
+        for chunk in stream:
+            text_chunk = ""
+            tool_deltas = []
+            
+            if chunk.candidates and chunk.candidates[0].content:
+                for part in chunk.candidates[0].content.parts:
+                    if part.text:
+                        text_chunk += part.text
+                    
+                    if part.function_call:
+                        # Capture the thought signature so Gemini doesn't degrade!
+                        metadata = {}
+                        if hasattr(part, "thought_signature") and part.thought_signature:
+                            metadata["thought_signature"] = part.thought_signature
 
-        candidate = response.candidates[0]
-        text_response = ""
-        tool_calls = []
-
-        if getattr(candidate, "content", None) and getattr(
-            candidate.content, "parts", None
-        ):
-            for part in candidate.content.parts:
-                if getattr(part, "text", None):
-                    text_response += part.text
-                if getattr(part, "function_call", None):
-                    fc = part.function_call
-                    metadata = {}
-
-                    if hasattr(fc, "id") and fc.id:
-                        metadata["id"] = fc.id
-
-                    # Fix: Extract from the Part object (part) instead of the FunctionCall (fc)
-                    if hasattr(part, "thought_signature") and part.thought_signature:
-                        metadata["thought_signature"] = part.thought_signature
-
-                    tool_calls.append(
-                        ToolCall(
-                            name=fc.name,
-                            args=_to_native_types(fc.args),
-                            id=getattr(fc, "id", None),
-                            metadata=metadata,
-                        )
-                    )
-
-        return LLMResponse(
-            text=text_response.strip(),
-            tool_calls=tool_calls,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-        )
+                        # Gemini sends the whole tool call at once, format as a delta
+                        tool_deltas.append({
+                            "index": 0,
+                            "id": getattr(part.function_call, "id", f"call_{part.function_call.name}"),
+                            "name": part.function_call.name,
+                            "arguments": json.dumps(_to_native_types(part.function_call.args)),
+                            "metadata": metadata # <-- ADD METADATA HERE
+                        })
+            
+            # Extract usage if it's the final chunk
+            prompt_tokens = chunk.usage_metadata.prompt_token_count if chunk.usage_metadata else 0
+            comp_tokens = chunk.usage_metadata.candidates_token_count if chunk.usage_metadata else 0
+            is_finished = True if chunk.usage_metadata else False
+            
+            yield StreamChunk(
+                text=text_chunk,
+                tool_call_deltas=tool_deltas,
+                is_finished=is_finished,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=comp_tokens
+            )

@@ -1,5 +1,5 @@
 # cli/chat_loop.py
-
+import sys
 import json
 import textwrap
 from rich.console import Console
@@ -124,6 +124,10 @@ def search_memories_flow() -> None:
         table.add_row(category, content, created)
     console.print(table)
 
+def cli_stream_callback(text_chunk: str):
+    """Streams tokens to the terminal in real-time."""
+    sys.stdout.write(text_chunk)
+    sys.stdout.flush()
 
 def enter_chat_session(conversation_id: int) -> None:
     """The central in-chat interactive shell parsing prompt commands."""
@@ -311,10 +315,11 @@ def enter_chat_session(conversation_id: int) -> None:
                     conversation_id=conversation_id,
                     user_text=user_input,
                     source="cli",
+                    send_message_callback=cli_stream_callback,
                     status_callback=cli_status_callback,
                     approval_callback=cli_approval_callback 
                 )
-            print(f"\n Assistant: {response_text}\n")
+            print("\n")
 
         except Exception as e:
             print(f"Error during execution loop: {e}")

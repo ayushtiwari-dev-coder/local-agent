@@ -124,3 +124,23 @@ def test_format_context_malformed_db_messages(mock_get_inst):
     assert standardized_messages[0] == {"role": "user", "content": ""}
     assert standardized_messages[1] == {"role": None, "content": "Who am I?"}
     assert standardized_messages[2] == {"role": "assistant", "content": None}
+
+def test_smart_truncate_no_newlines():
+    """
+    Edge Case: Ensures the truncator doesn't crash or fail to compress 
+    massive strings that contain absolutely zero newline characters.
+    """
+    # 20,000 characters, no newlines
+    massive_minified_string = "A" * 20000 
+    
+    res = smart_truncate_tool_output(
+        massive_minified_string, 
+        "read_files", 
+        threshold_chars=500
+    )
+    
+    assert "[RAW OUTPUT TRUNCATED]" in res
+    # Ensure the string was actually compressed
+    assert len(res) < 2000
+    # Ensure it grabbed the head and tail safely
+    assert "AAAAA" in res

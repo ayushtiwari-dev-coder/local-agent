@@ -49,3 +49,5 @@ class BaseLLMProvider(ABC):
             A list of float arrays representing the embeddings.
         """
         pass
+
+    

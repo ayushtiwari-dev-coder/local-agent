@@ -471,3 +471,29 @@ def test_skeleton_parser_code_no_structures():
     flat_code = "x = 10\ny = 20\nprint(x + y)"
     res = generate_file_skeleton(flat_code, "script.py")
     assert "No structural data could be extracted" in res
+
+
+def test_symlink_path_traversal_jailbreak(sandbox_workspace_fixture, tmp_path):
+    """
+    CRITICAL SECURITY TEST: Ensures the agent cannot bypass the sandbox 
+    by creating a symlink to an outside file and reading it.
+    """
+    # 1. Create a "secret" file completely outside the sandbox
+    outside_secret = tmp_path / "system_password.txt"
+    outside_secret.write_text("SUPER_SECRET_HASH")
+    
+    # 2. Simulate the LLM using the terminal to create a symlink INSIDE the sandbox
+    symlink_path = os.path.join(sandbox_workspace_fixture.name, "innocent_link.txt")
+    try:
+        os.symlink(str(outside_secret), symlink_path)
+    except OSError:
+        pytest.skip("Symlinks not supported on this host OS (e.g., Windows without admin).")
+
+    # 3. The LLM attempts to read the symlink using native tools
+    res = read_files(["innocent_link.txt"])
+    
+    # 4. Assert the system caught the symlink resolution
+    key = list(res.keys())[0]
+    assert "SUPER_SECRET_HASH" not in res[key], "CRITICAL: Symlink jailbreak successful!"
+    assert "Error" in res[key]
+    assert "outside the allowed workspace" in res[key]
