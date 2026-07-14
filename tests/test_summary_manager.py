@@ -34,8 +34,10 @@ def test_summary_workflow_triggers_and_saves(
     mock_llm.generate_content.return_value = mock_response
     mock_get_provider.return_value = mock_llm
 
-   # Run workflow
-    _run_summary_workflow(provider_name="gemini", api_key="fake", model_name="gemini", conversation_id=1)
+    # Run workflow
+    _run_summary_workflow(
+        provider_name="gemini", api_key="fake", model_name="gemini", conversation_id=1
+    )
 
     # Assert LLM was called to generate the summary
     mock_llm.generate_content.assert_called_once()
@@ -66,7 +68,9 @@ def test_summary_workflow_skips_if_under_threshold(
         {"id": 2, "role": "assistant", "content": "Hello"},
     ]
 
-    _run_summary_workflow(provider_name="gemini", api_key="fake", model_name="gemini", conversation_id=1)
+    _run_summary_workflow(
+        provider_name="gemini", api_key="fake", model_name="gemini", conversation_id=1
+    )
 
     # Assert LLM was NEVER called
     mock_get_provider.assert_not_called()

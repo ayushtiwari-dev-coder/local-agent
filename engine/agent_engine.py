@@ -13,7 +13,7 @@ from managers.conversation_manager import (
 from managers.summary_manager import trigger_background_summary
 from llm.provider_factory import LLMFactory
 import utils.config_manager as config_manager
-from engine.stream_processor import process_llm_stream,calculate_fallback_tokens
+from engine.stream_processor import process_llm_stream, calculate_fallback_tokens
 
 
 class AgentEngine:
@@ -41,10 +41,10 @@ class AgentEngine:
     def _trigger_summary_safely(self, conversation_id: int) -> None:
         try:
             trigger_background_summary(
-            self.provider.__class__.__name__.replace("Provider", "").lower(),
-            self.provider.api_key,
-            self.provider.model_name,
-            conversation_id,
+                self.provider.__class__.__name__.replace("Provider", "").lower(),
+                self.provider.api_key,
+                self.provider.model_name,
+                conversation_id,
             )
         except Exception:
             pass
@@ -56,7 +56,7 @@ class AgentEngine:
         source: str = "cli",
         send_message_callback=None,
         status_callback=None,
-        approval_callback=None, 
+        approval_callback=None,
     ) -> str:
         """Executes the ReAct loop using the abstract LLM provider."""
         save_user_message(conversation_id, user_text)
@@ -64,12 +64,14 @@ class AgentEngine:
         db_messages = compile_llm_context(conversation_id)
         tool_call_history = []
         turn_count = 0
-        
+
         MAX_TURNS = config_manager.get_max_turns()
 
         while True:
             if turn_count >= MAX_TURNS:
-                error_msg = f"Error: Maximum tool execution limit ({MAX_TURNS} turns) reached."
+                error_msg = (
+                    f"Error: Maximum tool execution limit ({MAX_TURNS} turns) reached."
+                )
                 save_assistant_message(conversation_id, error_msg)
                 return error_msg
 
@@ -85,10 +87,10 @@ class AgentEngine:
                     tools=get_all_tools(),
                     status_callback=status_callback,
                 )
-                
+
                 # 2. Pass to our middle piece to handle buffering and UI callbacks
-                full_text, parsed_tool_calls, prompt_tokens, comp_tokens = process_llm_stream(
-                    stream, send_message_callback
+                full_text, parsed_tool_calls, prompt_tokens, comp_tokens = (
+                    process_llm_stream(stream, send_message_callback)
                 )
 
             except Exception as e:
@@ -115,11 +117,13 @@ class AgentEngine:
 
             # 4. Execute Tools if requested
             if parsed_tool_calls:
-                db_messages.append({
-                    "role": "assistant",
-                    "content": full_text,
-                    "tool_calls": parsed_tool_calls
-                })
+                db_messages.append(
+                    {
+                        "role": "assistant",
+                        "content": full_text,
+                        "tool_calls": parsed_tool_calls,
+                    }
+                )
 
                 for tool_call in parsed_tool_calls:
                     tool_name = tool_call.name
@@ -135,36 +139,44 @@ class AgentEngine:
                         return loop_error
 
                     if status_callback:
-                        status_callback(f"Executing tool '{tool_name}' with arguments:\n{tool_args}")
+                        status_callback(
+                            f"Executing tool '{tool_name}' with arguments:\n{tool_args}"
+                        )
 
                     tool_output, status = determine_and_execute_tool(
                         tool_name,
                         tool_args,
                         conversation_id,
                         self.autonomous,
-                        approval_callback=approval_callback 
+                        approval_callback=approval_callback,
                     )
 
                     if status_callback:
-                        status_callback(f"Tool '{tool_name}' returned status: '{status}'")
+                        status_callback(
+                            f"Tool '{tool_name}' returned status: '{status}'"
+                        )
 
-                    tool_call_history.append({
-                        "name": tool_name,
-                        "args_json": serialized_args,
-                        "status": status,
-                        "paths": _extract_paths(tool_name, tool_args) or set(),
-                    })
+                    tool_call_history.append(
+                        {
+                            "name": tool_name,
+                            "args_json": serialized_args,
+                            "status": status,
+                            "paths": _extract_paths(tool_name, tool_args) or set(),
+                        }
+                    )
 
                     if status == "success":
                         formatted_output = f"SYSTEM: Action SUCCESS. DO NOT repeat this action. Review output and move to next step.\n\nOUTPUT:\n{tool_output}"
                     else:
                         formatted_output = f"SYSTEM: Action FAILED. Analyze the error below and change your approach.\n\nERROR:\n{tool_output}"
 
-                    db_messages.append({
-                        "role": "tool",
-                        "tool_name": tool_name,
-                        "content": formatted_output,
-                    })
+                    db_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_name": tool_name,
+                            "content": formatted_output,
+                        }
+                    )
 
                 continue
 

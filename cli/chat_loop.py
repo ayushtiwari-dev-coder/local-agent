@@ -124,10 +124,12 @@ def search_memories_flow() -> None:
         table.add_row(category, content, created)
     console.print(table)
 
+
 def cli_stream_callback(text_chunk: str):
     """Streams tokens to the terminal in real-time."""
     sys.stdout.write(text_chunk)
     sys.stdout.flush()
+
 
 def enter_chat_session(conversation_id: int) -> None:
     """The central in-chat interactive shell parsing prompt commands."""
@@ -283,11 +285,13 @@ def enter_chat_session(conversation_id: int) -> None:
                 print(f"\n[{res['status'].capitalize()}] {res['message']}")
                 continue
             elif lowered.startswith("/research"):
-                query = user_input[len("/research"):].strip()
+                query = user_input[len("/research") :].strip()
                 if not query:
-                    print(" Please provide a research topic. Example: /research quantum computing")
+                    print(
+                        " Please provide a research topic. Example: /research quantum computing"
+                    )
                     continue
-                
+
                 # Wrap the query in our strict Deep Research directive
                 research_directive = f"""{query}
 
@@ -300,11 +304,11 @@ def enter_chat_session(conversation_id: int) -> None:
 
                 reset_execution_counters()
                 response_text = engine.send_message(
-                    conversation_id=conversation_id, 
-                    user_text=research_directive, # Pass the wrapped directive
+                    conversation_id=conversation_id,
+                    user_text=research_directive,  # Pass the wrapped directive
                     source="cli",
                     status_callback=cli_status_callback,
-                    approval_callback=cli_approval_callback
+                    approval_callback=cli_approval_callback,
                 )
                 print(f"\n Assistant: {response_text}\n")
                 continue
@@ -312,13 +316,13 @@ def enter_chat_session(conversation_id: int) -> None:
             # --- Standard Message Dispatch ---
             reset_execution_counters()
             response_text = engine.send_message(
-                    conversation_id=conversation_id,
-                    user_text=user_input,
-                    source="cli",
-                    send_message_callback=cli_stream_callback,
-                    status_callback=cli_status_callback,
-                    approval_callback=cli_approval_callback 
-                )
+                conversation_id=conversation_id,
+                user_text=user_input,
+                source="cli",
+                send_message_callback=cli_stream_callback,
+                status_callback=cli_status_callback,
+                approval_callback=cli_approval_callback,
+            )
             print("\n")
 
         except Exception as e:

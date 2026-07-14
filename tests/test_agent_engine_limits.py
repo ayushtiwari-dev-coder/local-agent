@@ -3,7 +3,8 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from engine.agent_engine import AgentEngine
-from llm.schemas import StreamChunk # CHANGED: Imported StreamChunk
+from llm.schemas import StreamChunk  # CHANGED: Imported StreamChunk
+
 
 @patch("engine.agent_engine.config_manager.get_max_turns", return_value=3)
 @patch("engine.agent_engine.LLMFactory.get_provider")
@@ -11,7 +12,7 @@ from llm.schemas import StreamChunk # CHANGED: Imported StreamChunk
 @patch("engine.agent_engine.save_assistant_message")
 @patch("engine.agent_engine.compile_llm_context", return_value=[])
 @patch("engine.agent_engine.log_api_usage")
-@patch("engine.agent_engine.check_for_infinite_loop") # Bypass loop protector
+@patch("engine.agent_engine.check_for_infinite_loop")  # Bypass loop protector
 def test_max_turns_exceeded(
     mock_loop_check,
     mock_log_api,
@@ -34,16 +35,18 @@ def test_max_turns_exceeded(
     # CHANGED: Now using StreamChunk in a list to simulate a stream
     fake_chunk = StreamChunk(
         text="",
-        tool_call_deltas=[{
-            "id": "call_123", 
-            "name": "run_terminal_command", 
-            "arguments": '{"cmd": "ls"}'
-        }],
+        tool_call_deltas=[
+            {
+                "id": "call_123",
+                "name": "run_terminal_command",
+                "arguments": '{"cmd": "ls"}',
+            }
+        ],
         is_finished=True,
         prompt_tokens=10,
-        completion_tokens=10
+        completion_tokens=10,
     )
-    
+
     # Return a list containing the chunk (lists are iterable, satisfying the stream loop)
     mock_provider.generate_content.return_value = [fake_chunk]
 

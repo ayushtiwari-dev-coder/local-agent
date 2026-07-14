@@ -6,6 +6,8 @@ Allows the agent to autonomously remember user preferences, facts, and retrieve 
 
 from managers.memory_manager import save_semantic_memory, retrieve_semantic_memory
 from tools.core import agent_tool
+
+
 @agent_tool
 def remember_user_preference(content: str, category: str) -> str:
     """
@@ -17,6 +19,7 @@ def remember_user_preference(content: str, category: str) -> str:
         return "Memory successfully stored and clustered."
     except Exception as e:
         return f"Error: Failed to store memory: {e}"
+
 
 @agent_tool
 def search_user_history(query: str, category: str) -> str:

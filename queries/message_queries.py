@@ -38,7 +38,10 @@ def get_messages_by_conversation(conversation_id: int) -> list[dict]:
     query = "SELECT id, conversation_id, role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC;"
     return execute_read(query, (conversation_id,))
 
-def get_messages_paginated(conversation_id: int, before_id: int = None, limit: int = 20) -> list[dict]:
+
+def get_messages_paginated(
+    conversation_id: int, before_id: int = None, limit: int = 20
+) -> list[dict]:
     """Retrieves a chunk of older messages for infinite scrolling."""
     if before_id:
         query = "SELECT id, conversation_id, role, content, created_at FROM messages WHERE conversation_id = ? AND id < ? ORDER BY id DESC LIMIT ?;"
@@ -46,6 +49,6 @@ def get_messages_paginated(conversation_id: int, before_id: int = None, limit: i
     else:
         query = "SELECT id, conversation_id, role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?;"
         rows = execute_read(query, (conversation_id, limit))
-    
+
     # Reverse the rows so they are sent to the UI in chronological order (oldest first in the chunk)
     return list(reversed(rows)) if rows else []

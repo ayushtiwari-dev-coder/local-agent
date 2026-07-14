@@ -13,7 +13,7 @@ DEFAULT_CONFIG = {
     },
     "models": {
         "default_provider": "gemini",
-        "default_embedding_provider":"gemini",
+        "default_embedding_provider": "gemini",
         "active_models": {
             "gemini": "gemini-3.1-flash-lite",
             "groq": "llama-3.3-70b-versatile",
@@ -46,9 +46,10 @@ DEFAULT_CONFIG = {
             "allowed_user_ids": [],
         },
         "cli": {"log_truncation_limit": 500},
-        "max_concurrent_chats":3,
+        "max_concurrent_chats": 3,
     },
 }
+
 
 def load_config() -> dict:
     if not os.path.exists(CONFIG_PATH):
@@ -66,6 +67,7 @@ def load_config() -> dict:
         return merged
     except Exception:
         return DEFAULT_CONFIG
+
 
 def save_config(config: dict) -> None:
     try:

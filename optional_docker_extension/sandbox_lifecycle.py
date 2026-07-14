@@ -38,22 +38,22 @@
 #     Falls back to the container's creation metadata if no executions have occurred yet.
 #     """
 #     now_utc = datetime.now(timezone.utc)
-    
+
 #     try:
 #         query = """
-#             SELECT created_at FROM tool_logs 
-#             WHERE conversation_id = ? 
+#             SELECT created_at FROM tool_logs
+#             WHERE conversation_id = ?
 #             ORDER BY id DESC LIMIT 1;
 #         """
 #         row = execute_read(query, (conversation_id,), fetch_one=True)
-        
+
 #         if row and row.get("created_at"):
 #             ts_str = row["created_at"].strip()
 #             if "." in ts_str:
 #                 ts_str = ts_str.split(".")[0]
 #             dt = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
 #             return dt.replace(tzinfo=timezone.utc)
-            
+
 #     except Exception as db_err:
 #         logger.warning(f"Failed to query database last active time for conversation {conversation_id}: {db_err}")
 
@@ -72,14 +72,14 @@
 
 # def enforce_sandbox_lifecycle_policy(client: docker.DockerClient, active_conversation_id: int = None) -> None:
 #     """
-#     Orchestrates the multitasking constraints, stopping idle containers and 
+#     Orchestrates the multitasking constraints, stopping idle containers and
 #     pruning older disk layers (LRU) based on user-defined configurations.
 #     """
 #     # Load settings directly from user-controlled config manager
 #     max_active = config_manager.get_max_active_containers()
 #     max_total = config_manager.get_max_total_containers()
 #     idle_timeout_mins = config_manager.get_container_idle_timeout()
-    
+
 #     now_utc = datetime.now(timezone.utc)
 #     sandboxes = get_conversation_sandboxes(client)
 #     if not sandboxes:
@@ -102,7 +102,7 @@
 
 #     # 1. Idle Timeout Auto-Stop (RAM Preservation)
 #     active_name = f"local_agent_sandbox_conv_{active_conversation_id}" if active_conversation_id else None
-    
+
 #     for s in enriched_sandboxes:
 #         # Never auto-stop the container actively executing the current command
 #         if s["container"].name != active_name and s["status"] == "running":
@@ -141,7 +141,7 @@
 #                 "last_active": _get_container_last_active_time(container, conv_id)
 #             })
 #         enriched_all.sort(key=lambda x: x["last_active"])
-        
+
 #         excess_total_count = len(enriched_all) - max_total
 #         for i in range(excess_total_count):
 #             target_container = enriched_all[i]["container"]
@@ -155,4 +155,4 @@
 #                     logger.warning(f"Failed to prune cold storage layer {target_container.name}: {e}")
 
 
-#cannot use myself since it is docker and my computer cannot run docker(anyone who wants to run than just import stuff in sandbox executer file)
+# cannot use myself since it is docker and my computer cannot run docker(anyone who wants to run than just import stuff in sandbox executer file)

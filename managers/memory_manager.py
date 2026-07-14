@@ -14,7 +14,7 @@ import utils.config_manager as config_manager
 def _get_active_provider():
     """Dynamically resolves the active LLM provider for embeddings."""
     # CHANGED: Now fetches the dedicated embedding provider!
-    provider_name = config_manager.get_default_embedding_provider() 
+    provider_name = config_manager.get_default_embedding_provider()
     model_name = config_manager.get_embedding_model(provider_name)
     api_key = config_manager.get_provider_api_key(provider_name)
 
@@ -24,6 +24,7 @@ def _get_active_provider():
         )
 
     return LLMFactory.get_provider(provider_name, api_key, model_name)
+
 
 def _cosine_similarity(v1: list[float], v2: list[float]) -> float:
     """Calculates semantic similarity between two vectors."""

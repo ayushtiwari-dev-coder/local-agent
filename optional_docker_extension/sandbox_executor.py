@@ -19,7 +19,7 @@
 #         Attempts to connect to the local Docker daemon.
 #         Retries up to 3 times with exponential backoff (1s, 2s, 4s delays).
 #         """
-        
+
 #         if self._cached_client is not None:
 #             try:
 #                 self._cached_client.ping()
@@ -113,10 +113,10 @@
 #                 workdir="/workspace",
 #                 demux=False
 #             )
-            
+
 #             exit_code = exec_result.exit_code
 #             output_text = exec_result.output.decode("utf-8").strip() or "[Command executed with no output]"
-            
+
 #             if exit_code == 0:
 #                 return {"status": "success", "output": output_text}
 #             else:
@@ -148,4 +148,4 @@
 #             logger.warning(f"Failed to clean up sandbox container for conversation {conversation_id}: {e}")
 #             return False
 
-#fully written docker logic for sandbox executer,this will be used to run command 
+# fully written docker logic for sandbox executer,this will be used to run command

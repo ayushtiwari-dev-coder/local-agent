@@ -63,9 +63,11 @@ def set_embedding_model(provider_name: str, model_name: str) -> None:
     config["models"]["embedding_models"][provider_name.lower()] = model_name
     save_config(config)
 
+
 def get_default_embedding_provider() -> str:
     config = load_config()
     return config["models"].get("default_embedding_provider", "gemini")
+
 
 def set_default_embedding_provider(provider_name: str) -> None:
     config = load_config()
