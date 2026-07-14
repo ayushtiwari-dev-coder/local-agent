@@ -31,7 +31,7 @@ def test_load_config_fallback_when_file_missing(temp_config_sandbox):
     if os.path.exists(temp_config_sandbox):
         os.remove(temp_config_sandbox)
     config = cm.load_config()
-    
+
     # FIX: Allow either gemini or groq depending on your local core.py settings
     assert config["models"]["default_provider"] in ["gemini", "groq"]
     assert "thinking_level" in config["settings"]
@@ -111,8 +111,6 @@ def test_sandbox_environment_persistence():
     assert cm.get_workspace_path().endswith("custom/dev/folder".replace("/", os.sep))
 
 
-
-
 # def test_multitasking_config_boundary_clamping(temp_config_sandbox):
 #     """Verify that setters enforce standard safe lower boundaries to prevent system crashes."""
 #     # Negative/Zero active counts must be clamped to at least 1 container
@@ -138,11 +136,11 @@ def test_sandbox_environment_persistence():
 #     # 1. Active container limit persistence
 #     cm.set_max_active_containers(5)
 #     assert cm.get_max_active_containers() == 5
-    
+
 #     # 2. Total container retention persistence
 #     cm.set_max_total_containers(15)
 #     assert cm.get_max_total_containers() == 15
-    
+
 #     # 3. Idle timeout boundary checks
 #     cm.set_container_idle_timeout(45.5)
 #     assert cm.get_container_idle_timeout() == 45.5

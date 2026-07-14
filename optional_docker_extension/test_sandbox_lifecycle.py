@@ -32,16 +32,16 @@
 #     """Verify containers idle beyond limits are stopped automatically, protecting active sessions."""
 #     c1, c2, c3 = mock_docker_containers
 #     mock_get_sandboxes.return_value = [(1, c1), (2, c2), (3, c3)]
-    
+
 #     # 1. Configure settings: 15-minute idle limit
 #     mock_config.get_max_active_containers.return_value = 5
 #     mock_config.get_max_total_containers.return_value = 10
 #     mock_config.get_container_idle_timeout.return_value = 15.0
-    
+
 #     # 2. Mock last active execution lookups from SQLite:
 #     # Set mock current time inside lifecycle calculations as: 2026-07-07 12:45:00 (UTC)
 #     now_simulated = datetime(2026, 7, 7, 12, 45, 0, tzinfo=timezone.utc)
-    
+
 #     def db_time_mock_side_effect(query, params, fetch_one):
 #         conv_id = params[0]
 #         if conv_id == 1:
@@ -77,13 +77,13 @@
 #     """Verify oldest running containers are stopped when the concurrent running limit is breached."""
 #     c1, c2, c3 = mock_docker_containers
 #     mock_get_sandboxes.return_value = [(1, c1), (2, c2), (3, c3)]
-    
+
 #     # Configure ceiling: Max active allowed concurrently is 2. (We have 3 running)
 #     mock_config.get_max_active_containers.return_value = 2
 #     mock_config.get_max_total_containers.return_value = 10
 #     # High idle threshold so idle timer doesn't trigger
 #     mock_config.get_container_idle_timeout.return_value = 120.0
-    
+
 #     # Set mock db timeline
 #     now_simulated = datetime(2026, 7, 7, 12, 45, 0, tzinfo=timezone.utc)
 #     mock_execute_read.side_effect = lambda q, p, f: {
@@ -113,14 +113,14 @@
 # def test_lifecycle_disk_pruning_lru_removal(mock_config, mock_execute_read, mock_get_sandboxes, mock_docker_containers):
 #     """Verify oldest containers on disk (stopped or running) are purged when total storage capacity is reached."""
 #     c1, c2, c3 = mock_docker_containers
-    
+
 #     # Configure total ceiling: Max total containers allowed on disk is 2. (We have 3 on disk)
 #     mock_config.get_max_active_containers.return_value = 5
 #     mock_config.get_max_total_containers.return_value = 2
 #     mock_config.get_container_idle_timeout.return_value = 120.0
-    
+
 #     mock_get_sandboxes.return_value = [(1, c1), (2, c2), (3, c3)]
-    
+
 #     now_simulated = datetime(2026, 7, 7, 12, 45, 0, tzinfo=timezone.utc)
 #     mock_execute_read.side_effect = lambda q, p, f: {
 #         1: {"created_at": "2026-07-07 12:10:00"}, # Oldest Stopped Sandbox
@@ -142,4 +142,4 @@
 #     c2.remove.assert_not_called()
 #     c3.remove.assert_not_called()
 
-#this test is testing the lifecycle of docker containers
+# this test is testing the lifecycle of docker containers

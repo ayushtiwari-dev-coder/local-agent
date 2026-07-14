@@ -1,10 +1,10 @@
-
 # managers/approval_manager.py
 import threading
 
 # Global dictionary to hold events for async approvals
 # Maps: conversation_id -> {"event": threading.Event, "approved": bool}
 active_approvals = {}
+
 
 def wait_for_decision(conversation_id: int, timeout: int = 300) -> bool:
     """
@@ -13,17 +13,18 @@ def wait_for_decision(conversation_id: int, timeout: int = 300) -> bool:
     """
     event = threading.Event()
     active_approvals[conversation_id] = {"event": event, "approved": False}
-    
+
     # Freeze the thread here
     event_triggered = event.wait(timeout=timeout)
-    
+
     # Retrieve the user's decision
     decision = active_approvals.pop(conversation_id, {})
-    
+
     if not event_triggered:
         return False  # Timed out
-        
+
     return decision.get("approved", False)
+
 
 def resolve_decision(conversation_id: int, approved: bool) -> bool:
     """

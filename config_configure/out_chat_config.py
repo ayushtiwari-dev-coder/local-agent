@@ -223,6 +223,8 @@ def update_telegram_settings(
         "status": "success",
         "message": "Telegram configuration updated successfully!",
     }
+
+
 def set_default_embedding_provider(provider: str) -> dict:
     """Headless function to switch the global default embedding provider."""
     config_manager.set_default_embedding_provider(provider)
@@ -230,6 +232,8 @@ def set_default_embedding_provider(provider: str) -> dict:
         "status": "success",
         "message": f"Default embedding provider changed to {provider.upper()}.",
     }
+
+
 def update_max_concurrent_chats(count: int) -> dict:
     """Headless function to update the maximum concurrent chats limit."""
     config_manager.set_max_concurrent_chats(count)

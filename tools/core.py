@@ -1,6 +1,7 @@
 # tools/core.py
 from typing import Callable
 
+
 def agent_tool(func: Callable) -> Callable:
     """
     Decorator that tags a function as an LLM-callable tool.

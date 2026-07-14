@@ -13,6 +13,7 @@ from managers.conversation_manager import (
 from managers.summary_manager import trigger_background_summary
 from llm.provider_factory import LLMFactory
 import utils.config_manager as config_manager
+from engine.stream_processor import process_llm_stream, calculate_fallback_tokens
 
 
 class AgentEngine:
@@ -40,10 +41,10 @@ class AgentEngine:
     def _trigger_summary_safely(self, conversation_id: int) -> None:
         try:
             trigger_background_summary(
-            self.provider.__class__.__name__.replace("Provider", "").lower(),
-            self.provider.api_key,
-            self.provider.model_name,
-            conversation_id,
+                self.provider.__class__.__name__.replace("Provider", "").lower(),
+                self.provider.api_key,
+                self.provider.model_name,
+                conversation_id,
             )
         except Exception:
             pass
@@ -55,16 +56,15 @@ class AgentEngine:
         source: str = "cli",
         send_message_callback=None,
         status_callback=None,
-        approval_callback=None, # <-- Added the callback parameter
+        approval_callback=None,
     ) -> str:
         """Executes the ReAct loop using the abstract LLM provider."""
         save_user_message(conversation_id, user_text)
 
-        # compile_llm_context returns standard dicts: [{"role": "user", "content": "hi"}]
         db_messages = compile_llm_context(conversation_id)
-
         tool_call_history = []
         turn_count = 0
+
         MAX_TURNS = config_manager.get_max_turns()
 
         while True:
@@ -77,32 +77,55 @@ class AgentEngine:
 
             turn_count += 1
 
-            # Emit a status update indicating a new API turn is beginning
             if status_callback:
                 status_callback(f"Generating thoughts... [Turn #{turn_count}]")
 
             try:
-                response = self.provider.generate_content(
+                # 1. Get the stream from the provider
+                stream = self.provider.generate_content(
                     messages=db_messages,
                     tools=get_all_tools(),
                     status_callback=status_callback,
                 )
+
+                # 2. Pass to our middle piece to handle buffering and UI callbacks
+                full_text, parsed_tool_calls, prompt_tokens, comp_tokens = (
+                    process_llm_stream(stream, send_message_callback)
+                )
+
             except Exception as e:
                 raise RuntimeError(f"LLM API execution failed: {e}") from e
 
+            # =================================================================
+            # 3. TOKEN FALLBACK CALCULATOR
+            # =================================================================
+            if prompt_tokens == 0 or comp_tokens == 0:
+                fallback_prompt, fallback_comp = calculate_fallback_tokens(
+                    db_messages, full_text, parsed_tool_calls
+                )
+                # Only overwrite if the API actually failed to provide them
+                prompt_tokens = prompt_tokens or fallback_prompt
+                comp_tokens = comp_tokens or fallback_comp
+
+            # 4. Log API usage to SQLite
             log_api_usage(
                 conversation_id,
                 self.provider.model_name,
-                response.prompt_tokens,
-                response.completion_tokens,
+                prompt_tokens,
+                comp_tokens,
             )
 
-            if response.tool_calls:
+            # 4. Execute Tools if requested
+            if parsed_tool_calls:
                 db_messages.append(
-                    {"role": "assistant", "tool_calls": response.tool_calls}
+                    {
+                        "role": "assistant",
+                        "content": full_text,
+                        "tool_calls": parsed_tool_calls,
+                    }
                 )
 
-                for tool_call in response.tool_calls:
+                for tool_call in parsed_tool_calls:
                     tool_name = tool_call.name
                     tool_args = tool_call.args
                     serialized_args = json.dumps(tool_args, sort_keys=True)
@@ -115,22 +138,19 @@ class AgentEngine:
                         save_assistant_message(conversation_id, loop_error)
                         return loop_error
 
-                    # Emit tool run status before execution
                     if status_callback:
                         status_callback(
                             f"Executing tool '{tool_name}' with arguments:\n{tool_args}"
                         )
 
-                    # 1. Call determine_and_execute_tool (Pass the callback down!)
                     tool_output, status = determine_and_execute_tool(
                         tool_name,
                         tool_args,
                         conversation_id,
                         self.autonomous,
-                        approval_callback=approval_callback # <-- Pass it here
+                        approval_callback=approval_callback,
                     )
 
-                    # 2. Log to history and append to messages
                     if status_callback:
                         status_callback(
                             f"Tool '{tool_name}' returned status: '{status}'"
@@ -157,11 +177,11 @@ class AgentEngine:
                             "content": formatted_output,
                         }
                     )
+
                 continue
 
             else:
-                # 4. Final text response received
-                final_text = response.text if response.text else ""
-                save_assistant_message(conversation_id, final_text)
+                # 5. Final text response received
+                save_assistant_message(conversation_id, full_text)
                 self._trigger_summary_safely(conversation_id)
-                return final_text
+                return full_text

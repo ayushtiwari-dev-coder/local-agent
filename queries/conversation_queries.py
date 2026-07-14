@@ -50,6 +50,7 @@ def delete_conversation(conversation_id: int) -> None:
     if rows_affected == 0:
         raise ValueError(f"Conversation with ID {conversation_id} not found.")
 
+
 def get_latest_conversation_by_title(title: str) -> dict | None:
     """Retrieves the most recent conversation matching a given title (even if user_id is NULL)."""
     query = """
@@ -61,10 +62,12 @@ def get_latest_conversation_by_title(title: str) -> dict | None:
     """
     return execute_read(query, (title,), fetch_one=True)
 
+
 def get_conversations_paginated(limit: int = 20, offset: int = 0) -> list[dict]:
     """Retrieves a chunk of recent conversations for the sidebar."""
     query = "SELECT id, user_id, title, created_at FROM conversations ORDER BY id DESC LIMIT ? OFFSET ?;"
     return execute_read(query, (limit, offset))
+
 
 def search_conversations(search_term: str, limit: int = 20) -> list[dict]:
     """Live search for conversations by title."""

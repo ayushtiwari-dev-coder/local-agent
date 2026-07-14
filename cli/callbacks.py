@@ -19,12 +19,15 @@ def reset_execution_counters() -> None:
     _tool_execution_counter = 0
 
 
-def cli_approval_callback(tool_name: str, tool_args: dict, conversation_id: int) -> bool:
+def cli_approval_callback(
+    tool_name: str, tool_args: dict, conversation_id: int
+) -> bool:
     """CLI specific approval prompt. Freezes terminal via input()."""
     print(f"\n [🚨 CRUCIAL ACTION REQUESTED] -> {tool_name}")
     print(f" Parameters: {json.dumps(tool_args, indent=2)}")
     choice = input(" Allow this action? (y/n): ").strip().lower()
     return choice == "y"
+
 
 def validate_api_key(provider: str, key: str) -> bool:
     """Attempts a quick, lightweight request using the SDK client to validate key permissions."""

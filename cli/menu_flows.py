@@ -236,14 +236,26 @@ def advanced_settings_flow() -> None:
         print(SEPARATOR)
         print(" Advanced Agent System Configuration Settings")
         print(SEPARATOR)
-        print(f" [1] Adjust ReAct Loop Maximum Turns (Current: {config_manager.get_max_turns()})")
-        print(f" [2] Set Sliding Window Context Size (Current: {config_manager.get_max_context_tokens()} tokens)")
-        print(f" [3] Modify Background Summary Threshold (Current: {config_manager.get_summary_trigger_count()} messages)")
-        print(f" [4] Set Local Log Truncation length (Current: {config_manager.get_cli_log_truncation_limit()} chars)")
-        print(f" [5] Set Memory Category Similarity Match (Current: {config_manager.get_memory_similarity_threshold()})")
+        print(
+            f" [1] Adjust ReAct Loop Maximum Turns (Current: {config_manager.get_max_turns()})"
+        )
+        print(
+            f" [2] Set Sliding Window Context Size (Current: {config_manager.get_max_context_tokens()} tokens)"
+        )
+        print(
+            f" [3] Modify Background Summary Threshold (Current: {config_manager.get_summary_trigger_count()} messages)"
+        )
+        print(
+            f" [4] Set Local Log Truncation length (Current: {config_manager.get_cli_log_truncation_limit()} chars)"
+        )
+        print(
+            f" [5] Set Memory Category Similarity Match (Current: {config_manager.get_memory_similarity_threshold()})"
+        )
         print(f" [6] Configure Network Retry Bounds")
         print(f" [7] Configure Loop Guard Thresholds")
-        print(f" [8] Set Sandbox Workspace Path (Current: {config_manager.get_workspace_path()})")
+        print(
+            f" [8] Set Sandbox Workspace Path (Current: {config_manager.get_workspace_path()})"
+        )
         print(" [9] Back to Settings Menu")
         print(SEPARATOR)
 
@@ -288,11 +300,17 @@ def advanced_settings_flow() -> None:
                 print(" Invalid input.")
         elif choice == "6":
             retry = config_manager.get_api_retry_settings()
-            attempts = input(f" Enter maximum retry attempts [Current: {retry['max_attempts']}]: ").strip()
-            delay = input(f" Enter base delay in seconds [Current: {retry['base_delay']}]: ").strip()
+            attempts = input(
+                f" Enter maximum retry attempts [Current: {retry['max_attempts']}]: "
+            ).strip()
+            delay = input(
+                f" Enter base delay in seconds [Current: {retry['base_delay']}]: "
+            ).strip()
             if attempts.isdigit():
                 try:
-                    res = out_chat_config.update_api_retry_settings(int(attempts), float(delay))
+                    res = out_chat_config.update_api_retry_settings(
+                        int(attempts), float(delay)
+                    )
                     print(res["message"])
                 except ValueError:
                     print(" Invalid base delay format.")
@@ -300,10 +318,22 @@ def advanced_settings_flow() -> None:
                 print(" Invalid attempts format.")
         elif choice == "7":
             print("\n--- Loop Guard Threshold Configuration ---")
-            failed_in = input("Enter max consecutive failures allowed: ").strip().lower()
-            success_in = input("Enter max consecutive successes allowed: ").strip().lower()
-            max_failed = None if failed_in in ("", "0", "none") else (int(failed_in) if failed_in.isdigit() else None)
-            max_success = None if success_in in ("", "0", "none") else (int(success_in) if success_in.isdigit() else None)
+            failed_in = (
+                input("Enter max consecutive failures allowed: ").strip().lower()
+            )
+            success_in = (
+                input("Enter max consecutive successes allowed: ").strip().lower()
+            )
+            max_failed = (
+                None
+                if failed_in in ("", "0", "none")
+                else (int(failed_in) if failed_in.isdigit() else None)
+            )
+            max_success = (
+                None
+                if success_in in ("", "0", "none")
+                else (int(success_in) if success_in.isdigit() else None)
+            )
             res = out_chat_config.update_loop_guard(max_failed, max_success)
             print(f"\n[Success] {res['message']}")
         elif choice == "8":

@@ -26,7 +26,7 @@ def trigger_background_summary(
 def _run_summary_workflow(
     provider_name: str, api_key: str, model_name: str, conversation_id: int
 ) -> None:
-    
+
     # 1. Fetch old summary and determine the last message ID we summarized
     summary_record = get_summary_by_conversation(conversation_id)
     last_msg_id = summary_record["last_summarized_message_id"] if summary_record else 0

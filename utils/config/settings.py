@@ -23,7 +23,6 @@ def set_max_turns(turns: int) -> None:
     save_config(config)
 
 
-
 def get_max_context_tokens() -> int:
     """Gets the sliding window maximum token threshold for history trimming."""
     config = load_config()
@@ -59,6 +58,7 @@ def set_cli_log_truncation_limit(limit: int) -> None:
         config["cli"] = {}
     config["cli"]["log_truncation_limit"] = max(10, int(limit))
     save_config(config)
+
 
 def get_memory_similarity_threshold() -> float:
     """Minimum cosine similarity required to group a memory into an existing block."""
@@ -159,10 +159,12 @@ def set_telegram_config(bot_token: str, allowed_user_ids: list) -> None:
     ]
     save_config(config)
 
+
 def get_max_concurrent_chats() -> int:
     """Gets the maximum number of conversations that can generate simultaneously."""
     config = load_config()
     return int(config["settings"].get("max_concurrent_chats", 3))
+
 
 def set_max_concurrent_chats(count: int) -> None:
     """Sets the maximum number of concurrent generating conversations."""
@@ -170,7 +172,7 @@ def set_max_concurrent_chats(count: int) -> None:
     config["settings"]["max_concurrent_chats"] = max(1, int(count))
     save_config(config)
 
-    
+
 # Add to the bottom of utils/config/settings.py
 
 # def get_max_active_containers() -> int:

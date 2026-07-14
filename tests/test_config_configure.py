@@ -7,6 +7,7 @@ from unittest.mock import patch, MagicMock
 import config_configure.in_chat_config as in_chat
 import config_configure.out_chat_config as out_chat
 
+
 @patch("config_configure.in_chat_config.config_manager")
 def test_switch_active_model_success(mock_cm):
     """Ensures switching models returns the correct success dictionary."""
@@ -19,6 +20,7 @@ def test_switch_active_model_success(mock_cm):
     assert res["data"]["api_key"] == "mock_key_123"
     mock_cm.set_active_model.assert_called_once_with("gemini", "gemini-3.1-flash-lite")
 
+
 @patch("config_configure.in_chat_config.config_manager")
 def test_update_temperature_valid(mock_cm):
     """Ensures valid temperatures are accepted and formatted correctly."""
@@ -29,12 +31,14 @@ def test_update_temperature_valid(mock_cm):
     assert res["data"]["temperature"] == 0.7
     mock_cm.set_temperature.assert_called_once_with(0.7)
 
+
 def test_update_temperature_invalid():
     """Ensures out-of-bounds temperatures are rejected."""
     res = in_chat.update_temperature(2.5)  # Max is 2.0
 
     assert res["status"] == "error"
     assert "Out of range" in res["message"]
+
 
 @patch("config_configure.in_chat_config.config_manager")
 def test_update_thinking_level_valid(mock_cm):
@@ -45,6 +49,7 @@ def test_update_thinking_level_valid(mock_cm):
     assert "MEDIUM" in res["message"]
     assert res["data"]["thinking_level"] == "medium"
     mock_cm.set_thinking_level.assert_called_once_with("medium")
+
 
 @patch("config_configure.in_chat_config.search_memories")
 def test_search_semantic_memories(mock_search):
@@ -57,12 +62,14 @@ def test_search_semantic_memories(mock_search):
     assert "Found 1 matching memories" in res["message"]
     assert len(res["data"]) == 1
 
+
 def test_search_semantic_memories_empty():
     """Ensures empty queries are rejected cleanly."""
     res = in_chat.search_semantic_memories("   ")
 
     assert res["status"] == "error"
     assert "Query cannot be empty" in res["message"]
+
 
 @patch("config_configure.in_chat_config.delete_conversation")
 def test_delete_active_conversation(mock_delete):
@@ -72,6 +79,7 @@ def test_delete_active_conversation(mock_delete):
     assert res["status"] == "success"
     assert "deleted successfully" in res["message"]
     mock_delete.assert_called_once_with(42)
+
 
 @patch("config_configure.out_chat_config.config_manager")
 def test_get_providers_status(mock_cm):
@@ -89,6 +97,7 @@ def test_get_providers_status(mock_cm):
     assert res["data"]["groq"] == "Not Set"
     assert res["data"]["active_default"] == "gemini"
 
+
 @patch("config_configure.out_chat_config.config_manager")
 def test_update_system_instruction(mock_cm):
     """Ensures system instruction updates and handles 'CLEAR' logic."""
@@ -104,6 +113,7 @@ def test_update_system_instruction(mock_cm):
     assert "Reverted to default" in res2["message"]
     mock_cm.set_system_instruction.assert_called_with(None)
 
+
 @patch("config_configure.out_chat_config.config_manager")
 def test_update_loop_guard(mock_cm):
     """Ensures infinite loop guard thresholds update correctly."""
@@ -112,6 +122,7 @@ def test_update_loop_guard(mock_cm):
     assert res["status"] == "success"
     assert "Loop Guard thresholds updated" in res["message"]
     mock_cm.set_loop_guard.assert_called_once_with(5, 3)
+
 
 @patch("google.genai.Client")
 def test_validate_and_set_api_key_gemini_success(mock_genai_client):
@@ -128,6 +139,7 @@ def test_validate_and_set_api_key_gemini_success(mock_genai_client):
         assert "Successfully configured GEMINI" in res["message"]
         mock_instance.models.generate_content.assert_called_once()
         mock_set_key.assert_called_once_with("gemini", "valid_test_key")
+
 
 @patch("groq.Groq")
 def test_validate_and_set_api_key_groq_failure(mock_groq_client):
@@ -152,14 +164,15 @@ def test_validate_and_set_api_key_groq_failure(mock_groq_client):
         assert res_force["status"] == "success"
         mock_set_key.assert_called_once_with("groq", "bad_key")
 
+
 @patch("config_configure.out_chat_config.config_manager")
 def test_update_max_concurrent_chats(mock_cm):
     """Ensures max concurrent chats updates correctly."""
     # Mock the getter to return the new value for the success message
     mock_cm.get_max_concurrent_chats.return_value = 4
-    
+
     res = out_chat.update_max_concurrent_chats(4)
-    
+
     assert res["status"] == "success"
     assert "updated to 4" in res["message"]
     mock_cm.set_max_concurrent_chats.assert_called_once_with(4)

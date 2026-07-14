@@ -1,8 +1,9 @@
 # tests/test_agent_engine_limits.py
+
 import pytest
 from unittest.mock import patch, MagicMock
 from engine.agent_engine import AgentEngine
-from llm.schemas import LLMResponse, ToolCall
+from llm.schemas import StreamChunk  # CHANGED: Imported StreamChunk
 
 
 @patch("engine.agent_engine.config_manager.get_max_turns", return_value=3)
@@ -30,12 +31,24 @@ def test_max_turns_exceeded(
     mock_provider.model_name = "fake-test-model"
     mock_get_provider.return_value = mock_provider
 
-    # 2. Create a fake LLM response that ALWAYS requests a tool call
-    fake_tool_call = ToolCall(name="run_terminal_command", args={"cmd": "ls"})
-    fake_response = LLMResponse(
-        text="", tool_calls=[fake_tool_call], prompt_tokens=10, completion_tokens=10
+    # 2. Create a fake LLM stream chunk that ALWAYS requests a tool call
+    # CHANGED: Now using StreamChunk in a list to simulate a stream
+    fake_chunk = StreamChunk(
+        text="",
+        tool_call_deltas=[
+            {
+                "id": "call_123",
+                "name": "run_terminal_command",
+                "arguments": '{"cmd": "ls"}',
+            }
+        ],
+        is_finished=True,
+        prompt_tokens=10,
+        completion_tokens=10,
     )
-    mock_provider.generate_content.return_value = fake_response
+
+    # Return a list containing the chunk (lists are iterable, satisfying the stream loop)
+    mock_provider.generate_content.return_value = [fake_chunk]
 
     # 3. Initialize the engine
     engine = AgentEngine(provider_name="gemini", api_key="fake_key")
