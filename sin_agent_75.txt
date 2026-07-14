@@ -10952,7 +10952,7 @@ def get_sandbox_root() -> str:
 
 def _resolve_safe_path(path: str) -> str | None:
     sandbox_root = get_sandbox_root()
-    full_path = os.path.abspath(os.path.join(sandbox_root, path))
+    full_path = os.path.realpath(os.path.join(sandbox_root, path))
     if os.path.commonpath([full_path, sandbox_root]) != sandbox_root:
         return None
     return full_path
