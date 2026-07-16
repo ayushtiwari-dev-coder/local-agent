@@ -38,9 +38,30 @@ def start_telegram():
 
 
 def start_web():
-    """Placeholder for the future React/FastAPI backend."""
-    print("\n[Notice] Web/React interface is not yet implemented. Coming soon!")
-    sys.exit(0)
+    """Boots the FastAPI backend for the React UI."""
+    import uvicorn
+    from fastapi import FastAPI
+    from fastapi.middleware.cors import CORSMiddleware
+    from interfaces.websocket import router as websocket_router
+
+    print("\n[Notice] Starting FastAPI Web Server on ws://localhost:8000...")
+    
+    app = FastAPI(title="Local Agent API")
+    
+    # Add CORS middleware so React (port 5173) can talk to FastAPI (port 8000)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Safe for local development
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    
+    # Plug in the WebSocket router you already built
+    app.include_router(websocket_router)
+    
+    # Start the server
+    uvicorn.run(app, host="127.0.0.1", port=8000)
 
 
 def main():
