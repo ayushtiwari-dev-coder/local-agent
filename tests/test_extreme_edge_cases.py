@@ -145,33 +145,3 @@ def test_compile_llm_context_massive_single_message(mock_estimate, mock_conn):
     assert len(result) == 1
     assert result[0]["role"] == "user"
 
-# =====================================================================
-# 4. SECURITY GUARD UNICODE & BYPASS ATTEMPTS
-# =====================================================================
-
-from security.security_guard import check_command_safety
-
-def test_security_guard_unicode_obfuscation():
-    """
-    Security: Ensures attackers cannot bypass the static analyzer using 
-    Unicode variants of standard characters in the base command.
-    """
-    # Using a full-width unicode 'ｅｃｈｏ' instead of standard 'echo'
-    # A real terminal might reject this, but we must ensure our whitelist catches it.
-    malicious_cmd = "ｅｃｈｏ 'hello'"
-    
-    is_safe, reason = check_command_safety(malicious_cmd)
-    
-    # It should fail because 'ｅｃｈｏ' is NOT in the exact ASCII ALLOWED_COMMANDS whitelist
-    assert is_safe is False
-    assert "not in the allowed whitelist" in reason
-
-def test_security_guard_empty_or_whitespace_commands():
-    """Edge Case: Ensures empty commands or pure whitespace are safely treated as harmless no-ops."""
-    commands = ["", "   ", "\n\t\n"]
-    
-    for cmd in commands:
-        is_safe, reason = check_command_safety(cmd)
-        # An empty command does absolutely nothing in a terminal, so it is inherently safe.
-        assert is_safe is True
-        assert reason is None

@@ -1,7 +1,6 @@
 import subprocess
 import os
 
-
 class LocalSandboxExecutor:
     """
     LOCAL HOST EXECUTION ENGINE (RAM-Free)
@@ -9,21 +8,25 @@ class LocalSandboxExecutor:
     This fallback class is used for local systems without Docker Desktop.
     It isolates processes by restricting command execution to the workspace directory.
     """
-
     def __init__(self, sandbox_root: str):
         self.sandbox_root = os.path.abspath(sandbox_root)
 
-    def run_command(self, command: str, timeout_seconds: int = None) -> dict:
+    def run_command(self, command: list[str], timeout_seconds: int = None) -> dict:
+        """
+        Backend utility to run hardcoded commands. 
+        Takes a list (e.g., ["git", "status"]) instead of a raw string.
+        """
         if timeout_seconds is None:
             timeout_seconds = 15
 
         os.makedirs(self.sandbox_root, exist_ok=True)
 
         try:
-            # Executes command natively inside the safe workspace directory
+            # shell=False prevents injection. 
+            # cwd=self.sandbox_root ensures it ALWAYS runs standing in the workspace directory.
             result = subprocess.run(
                 command,
-                shell=True,
+                shell=False, 
                 cwd=self.sandbox_root,
                 capture_output=True,
                 text=True,
@@ -32,7 +35,7 @@ class LocalSandboxExecutor:
                 errors="replace",
             )
 
-            # COMBINE stdout and stderr so the LLM never misses hidden logs
+            # COMBINE stdout and stderr so we never miss hidden logs
             combined_output = f"{result.stdout}\n{result.stderr}".strip()
 
             if result.returncode == 0:
