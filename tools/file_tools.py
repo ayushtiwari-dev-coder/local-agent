@@ -436,12 +436,3 @@ _sandbox = LocalSandboxExecutor(get_sandbox_root())
 # from tools.sandbox_executor import DockerSandboxExecutor
 # _sandbox = DockerSandboxExecutor(get_sandbox_root())
 # =====================================================================
-
-
-@agent_tool
-def run_terminal_command(command: str) -> dict:
-    """
-    Executes a shell command natively inside the safe local workspace directory.
-    Use this to run Python scripts, install packages, or interact with the file system.
-    """
-    return _sandbox.run_command(command)

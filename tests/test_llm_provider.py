@@ -130,7 +130,7 @@ def test_gemini_parallel_tool_message_formatting():
     assert len(gemini_msgs[1]["parts"]) == 3  # 1 text part, 2 function_call parts
 
     # Verify the tool responses were grouped!
-    assert gemini_msgs[2]["role"] == "function"
+    assert gemini_msgs[2]["role"] == "user"
     assert len(gemini_msgs[2]["parts"]) == 2  # 2 function_response parts
 
 
