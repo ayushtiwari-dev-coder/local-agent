@@ -16,7 +16,7 @@ def get_active_model(provider_name: str) -> str:
     config = load_config()
     models_map = config["models"].get("active_models", {})
     fallback = (
-        "gemini-3.1-flash-lite"
+        "gemini-3.5-flash-lite"
         if provider_name.lower() == "gemini"
         else "llama-3.3-70b-versatile"
     )

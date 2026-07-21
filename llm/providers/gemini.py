@@ -1,10 +1,8 @@
 # llm/providers/gemini.py
-
 from typing import List, Dict, Any, Callable, Generator
 from google import genai
 from google.genai import types
 import json
-
 from ..base_provider import BaseLLMProvider
 from ..schemas import LLMResponse, ToolCall, StreamChunk
 from utils.native_types_helpers import _to_native_types
@@ -23,7 +21,7 @@ class GeminiProvider(BaseLLMProvider):
     def format_messages(
         self, standard_messages: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """Maps the universal standard messages to Gemini's specific SDK format."""
+        """Maps universal standard messages to Gemini's specific SDK format."""
         gemini_messages = []
         current_function_parts = []  # Buffer to group parallel tool calls
 
@@ -42,10 +40,10 @@ class GeminiProvider(BaseLLMProvider):
                     }
                 )
             else:
-                # If we have buffered tool calls, flush them into a SINGLE message first
+                # If we have buffered tool calls, flush them into a SINGLE message with role 'user'
                 if current_function_parts:
                     gemini_messages.append(
-                        {"role": "function", "parts": current_function_parts}
+                        {"role": "user", "parts": current_function_parts}  # CHANGED: 'function' -> 'user'
                     )
                     current_function_parts = []
 
@@ -70,7 +68,6 @@ class GeminiProvider(BaseLLMProvider):
                             fc_dict["id"] = metadata["id"]
 
                         part_dict = {"function_call": fc_dict}
-
                         if "thought_signature" in metadata:
                             part_dict["thought_signature"] = metadata[
                                 "thought_signature"
@@ -84,7 +81,7 @@ class GeminiProvider(BaseLLMProvider):
         # Flush any remaining tool calls at the very end of the loop
         if current_function_parts:
             gemini_messages.append(
-                {"role": "function", "parts": current_function_parts}
+                {"role": "user", "parts": current_function_parts}  
             )
 
         return gemini_messages
@@ -109,7 +106,6 @@ class GeminiProvider(BaseLLMProvider):
         system_instruction: str = "",
         **kwargs,
     ) -> Generator[StreamChunk, None, None]:
-
         # 1. Extract app-wide logic
         db_sys_inst, standard_msgs = format_context(messages)
         final_system_instruction = f"{system_instruction}\n{db_sys_inst}".strip()
@@ -130,22 +126,22 @@ class GeminiProvider(BaseLLMProvider):
         if tools:
             config_params["tools"] = tools
 
-        # Dynamically retrieve and apply the active thinking level
+        # Dynamically retrieve and apply active thinking level
         active_thinking_level = config_manager.get_thinking_level()
-        thinking_cfg = get_thinking_config(self.model_name, level=active_thinking_level)
-
+        thinking_cfg = get_thinking_config(
+            self.model_name, level=active_thinking_level
+        )
         if thinking_cfg:
             config_params["thinking_config"] = thinking_cfg
 
         config = types.GenerateContentConfig(**config_params)
 
         def make_gemini_request():
-            # CHANGED: Now uses generate_content_stream
             return self.client.models.generate_content_stream(
                 model=self.model_name, contents=gemini_messages, config=config
             )
 
-        # 4. Use the generic retry template
+        # 4. Use generic retry template
         stream = generate_with_retry(
             request_fn=make_gemini_request,
             is_quota_error_fn=is_quota_error,
@@ -164,7 +160,6 @@ class GeminiProvider(BaseLLMProvider):
                         text_chunk += part.text
 
                     if part.function_call:
-                        # Capture the thought signature so Gemini doesn't degrade!
                         metadata = {}
                         if (
                             hasattr(part, "thought_signature")
@@ -172,7 +167,6 @@ class GeminiProvider(BaseLLMProvider):
                         ):
                             metadata["thought_signature"] = part.thought_signature
 
-                        # Gemini sends the whole tool call at once, format as a delta
                         tool_deltas.append(
                             {
                                 "index": 0,
@@ -185,13 +179,15 @@ class GeminiProvider(BaseLLMProvider):
                                 "arguments": json.dumps(
                                     _to_native_types(part.function_call.args)
                                 ),
-                                "metadata": metadata,  # <-- ADD METADATA HERE
+                                "metadata": metadata,
                             }
                         )
 
-            # Extract usage if it's the final chunk
+            # Extract usage if final chunk
             prompt_tokens = (
-                chunk.usage_metadata.prompt_token_count if chunk.usage_metadata else 0
+                chunk.usage_metadata.prompt_token_count
+                if chunk.usage_metadata
+                else 0
             )
             comp_tokens = (
                 chunk.usage_metadata.candidates_token_count

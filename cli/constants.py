@@ -1,6 +1,6 @@
 # cli/constants.py
 
-SEPARATOR = "—" * 60
+SEPARATOR = "═" * 60
 
 ROLE_ICONS = {
     "user": "👤 You",
@@ -16,13 +16,21 @@ tools       - Show just the tool calls made in this conversation
 /models     - Switch active models/providers on the fly
 /thinking   - Adjust reasoning/thinking budget
 /search     - Search your long-term memories database
-/research   - Trigger Deep Research mode for a specific topic  
+/research   - Trigger Deep Research mode for a specific topic
 /delete     - Delete current active conversation thread immediately
 help        - Show this list again
 """.strip()
 
 SUPPORTED_MODELS = {
     "gemini": [
+        {
+            "model": "gemini-3.6-flash",
+            "desc": "Gemini 3.6 Flash (Latest frontier speed & efficiency for multi-step agentic loops)",
+        },
+        {
+            "model": "gemini-3.5-flash-lite",
+            "desc": "Gemini 3.5 Flash-Lite (Ultra-fast 350 tok/s, optimized for agentic search & docs)",
+        },
         {
             "model": "gemini-3.1-flash-lite",
             "desc": "Gemini 3.1 Flashlight (Ultra-low latency, supports thinking)",
@@ -36,7 +44,7 @@ SUPPORTED_MODELS = {
             "desc": "Gemini 2.5 Flash (State-of-the-art workhorse model)",
         },
         {
-            "model": "gemini-3-flash",
+            "model": "gemini-3-flash-preview",
             "desc": "Gemini 3 Flash (Advanced reasoning combined with Flash speed)",
         },
         {
@@ -71,6 +79,7 @@ SUPPORTED_MODELS = {
         },
     ],
 }
+
 SUPPORTED_EMBEDDING_MODELS = {
     "gemini": [
         {

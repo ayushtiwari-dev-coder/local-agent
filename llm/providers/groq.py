@@ -1,9 +1,9 @@
 # llm/providers/groq.py
-
 import os
 import json
 import inspect
 from typing import List, Dict, Any, Callable, Generator
+from collections import defaultdict
 from groq import Groq
 from ..base_provider import BaseLLMProvider
 from ..schemas import LLMResponse, ToolCall, StreamChunk
@@ -68,9 +68,6 @@ class GroqProvider(BaseLLMProvider):
     ) -> List[Dict[str, Any]]:
         """Maps universal standardized messages to Groq's OpenAI-compatible schema."""
         openai_messages = []
-
-        from collections import defaultdict
-
         tool_queues = defaultdict(list)
 
         for msg in standard_messages:
@@ -110,26 +107,35 @@ class GroqProvider(BaseLLMProvider):
                 if tool_calls:
                     openai_tool_calls = []
                     for tc in tool_calls:
-                        tc_name = getattr(tc, "name", None) or tc.get("name")
-                        tc_args = getattr(tc, "args", None) or tc.get("args")
-                        tc_id = (
-                            getattr(tc, "id", None) or tc.get("id") or f"call_{tc_name}"
-                        )
+                        # SAFELY handle both dicts (from DB) and ToolCall objects
+                        if isinstance(tc, dict):
+                            tc_name = tc.get("name")
+                            tc_args = tc.get("args")
+                            tc_id = tc.get("id") or f"call_{tc_name}"
+                        else:
+                            tc_name = getattr(tc, "name", None)
+                            tc_args = getattr(tc, "args", None)
+                            tc_id = getattr(tc, "id", None) or f"call_{tc_name}"
 
-                        tool_queues[tc_name].append(tc_id)
+                        if tc_name:
+                            tool_queues[tc_name].append(tc_id)
 
                         if isinstance(tc_args, dict):
                             args_str = json.dumps(tc_args)
                         else:
-                            args_str = str(tc_args)
+                            args_str = str(tc_args) if tc_args is not None else "{}"
 
                         openai_tool_calls.append(
                             {
                                 "id": tc_id,
                                 "type": "function",
-                                "function": {"name": tc_name, "arguments": args_str},
+                                "function": {
+                                    "name": tc_name,
+                                    "arguments": args_str,
+                                },
                             }
                         )
+
                     openai_msg["tool_calls"] = openai_tool_calls
                 openai_messages.append(openai_msg)
 
@@ -139,14 +145,15 @@ class GroqProvider(BaseLLMProvider):
         """Generates embeddings using Groq's fast embedding endpoint."""
         try:
             embedding_model = config_manager.get_embedding_model("groq")
-            response = self.client.embeddings.create(model=embedding_model, input=texts)
+            response = self.client.embeddings.create(
+                model=embedding_model, input=texts
+            )
             return [emb.embedding for emb in response.data]
         except Exception as e:
             raise RuntimeError(f"Groq Embedding API failed: {str(e)}")
 
     def _make_groq_request(self, groq_messages, groq_tools):
         """Dedicated method to handle the actual Groq API call and salvage logic."""
-        # CHANGED: Added "stream": True
         params = {
             "model": self.model_name,
             "messages": groq_messages,
@@ -183,6 +190,7 @@ class GroqProvider(BaseLLMProvider):
         db_sys_inst, standard_msgs = format_context(messages)
         final_system_instruction = f"{system_instruction}\n{db_sys_inst}".strip()
         groq_messages = self.format_messages(standard_msgs)
+
         if final_system_instruction:
             groq_messages.insert(
                 0, {"role": "system", "content": final_system_instruction}
@@ -190,7 +198,7 @@ class GroqProvider(BaseLLMProvider):
 
         groq_tools = [_function_to_schema(t) for t in tools] if tools else None
 
-        # 1. Initiate the stream (retries on 429s, etc.)
+        # 1. Initiate stream
         stream = generate_with_retry(
             request_fn=lambda: self._make_groq_request(groq_messages, groq_tools),
             is_quota_error_fn=is_quota_error,
@@ -201,7 +209,7 @@ class GroqProvider(BaseLLMProvider):
         prompt_tokens = 0
         comp_tokens = 0
 
-        # 2. Consume the stream with deferred 400-error interception
+        # 2. Consume stream
         try:
             for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None
@@ -217,14 +225,16 @@ class GroqProvider(BaseLLMProvider):
                             {
                                 "index": tc.index,
                                 "id": tc.id,
-                                "name": tc.function.name if tc.function else None,
+                                "name": (
+                                    tc.function.name if tc.function else None
+                                ),
                                 "arguments": (
                                     tc.function.arguments if tc.function else ""
                                 ),
                             }
                         )
 
-                # Extract usage if on the final chunk
+                # Extract token usage if available
                 if getattr(chunk, "x_groq", None) and getattr(
                     chunk.x_groq, "usage", None
                 ):
@@ -243,16 +253,13 @@ class GroqProvider(BaseLLMProvider):
                     prompt_tokens=prompt_tokens,
                     completion_tokens=comp_tokens,
                 )
-
         except Exception as e:
-            # Intercept Groq's 400 tool_use_failed error during streaming!
+            # Intercept Groq's 400 tool_use_failed during streaming
             if hasattr(e, "response") and getattr(e.response, "status_code", 0) == 400:
                 try:
                     err_data = e.response.json().get("error", {})
                     if err_data.get("code") == "tool_use_failed":
                         failed_text = err_data.get("failed_generation", "")
-
-                        # Generate the mock stream chunks from the failed generation text
                         salvaged_stream = salvage_groq_failed_generation_stream(
                             failed_text
                         )
@@ -265,10 +272,8 @@ class GroqProvider(BaseLLMProvider):
                                 )
                                 if not s_delta:
                                     continue
-
                                 s_text = s_delta.content or ""
                                 s_tool_deltas = []
-
                                 if getattr(s_delta, "tool_calls", None):
                                     for tc in s_delta.tool_calls:
                                         s_tool_deltas.append(
@@ -287,7 +292,6 @@ class GroqProvider(BaseLLMProvider):
                                                 ),
                                             }
                                         )
-
                                 yield StreamChunk(
                                     text=s_text,
                                     tool_call_deltas=s_tool_deltas,
@@ -295,10 +299,9 @@ class GroqProvider(BaseLLMProvider):
                                     prompt_tokens=0,
                                     completion_tokens=0,
                                 )
-                            return  # Exit successfully after yielding the salvaged chunks!
+                            return
                 except Exception:
                     pass
-            # Re-raise the exception if it wasn't a salvageable 400 error
             raise e
 
 
@@ -307,7 +310,6 @@ def salvage_groq_failed_generation_stream(failed_text: str):
     import re
     import json
 
-    # Helper to create a text-only chunk if we can't salvage the tool call
     def create_error_text_chunk(error_message):
         class MockDeltaText:
             def __init__(self):
@@ -329,24 +331,23 @@ def salvage_groq_failed_generation_stream(failed_text: str):
 
         return [MockChunkText()]
 
-    # 1. Try to parse the specific <function=name> format
+    # 1. Try to parse specific <function=name> format
     match = re.search(r"<function=(\w+)>(.*?)</function>", failed_text, re.DOTALL)
     if not match:
-        # FALLBACK: If we can't parse it, don't crash! Send the raw failure to the UI.
         return create_error_text_chunk(failed_text)
 
     tool_name = match.group(1)
     raw_args = match.group(2).strip()
 
-    # STRONG PARSING
     raw_args = re.sub(r"(?<!\\)\n", r"\\n", raw_args)
     raw_args = re.sub(r"(?<!\\)\t", r"\\t", raw_args)
 
     try:
         args_dict = json.loads(raw_args)
     except json.JSONDecodeError:
-        # FALLBACK: If the JSON is completely destroyed, send it to the UI.
-        return create_error_text_chunk(f"Tool: {tool_name}\nBroken Args: {raw_args}")
+        return create_error_text_chunk(
+            f"Tool: {tool_name}\nBroken Args: {raw_args}"
+        )
 
     if isinstance(args_dict, list):
         if tool_name == "write_files":
@@ -356,7 +357,6 @@ def salvage_groq_failed_generation_stream(failed_text: str):
         else:
             args_dict = {"arguments": args_dict}
 
-    # 2. Create a mock Groq API stream chunk for the salvaged tool
     class MockFunction:
         def __init__(self):
             self.name = tool_name
@@ -373,7 +373,9 @@ def salvage_groq_failed_generation_stream(failed_text: str):
             thought_match = re.search(
                 r"<thought>(.*?)</thought>", failed_text, re.DOTALL
             )
-            self.content = thought_match.group(1).strip() if thought_match else ""
+            self.content = (
+                thought_match.group(1).strip() if thought_match else ""
+            )
             self.tool_calls = [MockToolCall()]
 
     class MockChoice:
@@ -387,4 +389,4 @@ def salvage_groq_failed_generation_stream(failed_text: str):
             self.usage = None
             self.x_groq = None
 
-    return [MockChunk()]  # Return as a list so `for chunk in stream:` works
+    return [MockChunk()]
