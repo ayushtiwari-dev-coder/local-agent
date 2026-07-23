@@ -54,6 +54,8 @@ from utils.config.user import (
     set_user_profile,
     get_provider_api_key,
     set_provider_api_key,
+    get_tool_api_key,
+    set_tool_api_key
 )
 
 

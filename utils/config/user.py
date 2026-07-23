@@ -35,3 +35,22 @@ def set_provider_api_key(provider_name: str, api_key: str | None) -> None:
         config["user_profile"]["api_keys"] = {}
     config["user_profile"]["api_keys"][provider_name] = api_key
     save_config(config)
+
+def get_tool_api_key(tool_name: str) -> str | None:
+    """Gets a tool-specific API key, falling back to OS environment variables."""
+    config = load_config()
+    tool_name = tool_name.strip().lower()
+    key = config["user_profile"].get("tool_keys", {}).get(tool_name)
+    if key:
+        return key
+    
+    env_var_map = {"jina": "JINA_API_KEY"}
+    return os.environ.get(env_var_map.get(tool_name, ""))
+
+def set_tool_api_key(tool_name: str, api_key: str | None) -> None:
+    config = load_config()
+    tool_name = tool_name.strip().lower()
+    if "tool_keys" not in config["user_profile"]:
+        config["user_profile"]["tool_keys"] = {}
+    config["user_profile"]["tool_keys"][tool_name] = api_key
+    save_config(config)

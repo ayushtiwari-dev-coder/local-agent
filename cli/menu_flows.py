@@ -60,7 +60,8 @@ def main_menu(user_name: str) -> str:
     print(" [3] Rename a conversation")
     print(" [4] Delete a conversation")
     print(" [5] Manage Providers & API Keys")
-    print(" [6] Exit")
+    print(" [6] Manage Tool Api Keys")
+    print(" [7] Exit")
     print(SEPARATOR)
     choice = input(" Choose an option (1-6): ").strip()
     return {
@@ -69,9 +70,38 @@ def main_menu(user_name: str) -> str:
         "3": "rename",
         "4": "delete",
         "5": "config",
-        "6": "exit",
+        "6": "tool_keys",
+        "7":"exit",
     }.get(choice, "invalid")
 
+def tool_keys_management_flow() -> None:
+    """Dedicated menu for managing external Tool APIs."""
+    while True:
+        status_res = out_chat_config.get_tool_keys_status()["data"]
+        
+        print(SEPARATOR)
+        print(" Tool API Key Management Menu")
+        print(f" [1] Configure Jina AI (Web Research) - Status: [{status_res['jina']}]")
+        print(" [2] Back to Main Menu")
+        print(SEPARATOR)
+        
+        choice = input(" Choose option (1-2): ").strip()
+        
+        if choice == "1":
+            print(SEPARATOR)
+            print(" Setting up API key for: [JINA]")
+            key_input = input(" Paste your Jina API key: ").strip()
+            if not key_input:
+                print(" API Key cannot be blank.")
+                continue
+            
+            print(" Validating API key... Please wait.")
+            res = out_chat_config.validate_and_set_tool_key("jina", key_input)
+            print(f"\n[{res['status'].upper()}] {res['message']}")
+        elif choice == "2":
+            break
+        else:
+            print(" Invalid selection.")
 
 def rename_conversation_flow() -> None:
     """Interactively modifies titles."""
@@ -516,6 +546,8 @@ def run_main_app_loop() -> None:
             delete_conversation_flow()
         elif choice == "config":
             provider_management_flow()
+        elif choice=="tool_keys":
+            tool_keys_management_flow()
         elif choice == "exit":
             print("Goodbye!")
             break
