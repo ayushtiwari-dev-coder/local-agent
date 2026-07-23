@@ -176,3 +176,67 @@ def test_update_max_concurrent_chats(mock_cm):
     assert res["status"] == "success"
     assert "updated to 4" in res["message"]
     mock_cm.set_max_concurrent_chats.assert_called_once_with(4)
+
+
+@patch("config_configure.out_chat_config.config_manager")
+def test_get_tool_keys_status(mock_cm):
+    """Ensures the headless status fetcher correctly reports tool key presence."""
+    # Simulate Jina being configured
+    mock_cm.get_tool_api_key.return_value = "mock_key_exists"
+    
+    res_configured = out_chat.get_tool_keys_status()
+    assert res_configured["status"] == "success"
+    assert res_configured["data"]["jina"] == "Configured"
+
+    # Simulate Jina NOT being configured
+    mock_cm.get_tool_api_key.return_value = None
+    
+    res_missing = out_chat.get_tool_keys_status()
+    assert res_missing["data"]["jina"] == "Not Set"
+
+@patch("config_configure.out_chat_config.requests.get")
+@patch("config_configure.out_chat_config.config_manager.set_tool_api_key")
+def test_validate_and_set_tool_key_success(mock_set_key, mock_get):
+    """Happy Path: Ensures valid Jina keys are saved."""
+    # Mock a successful 200 OK response from Jina's API
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_get.return_value = mock_response
+
+    res = out_chat.validate_and_set_tool_key("jina", "valid_jina_key")
+
+    assert res["status"] == "success"
+    assert "Successfully configured JINA" in res["message"]
+    
+    # Verify the HTTP request was formatted correctly
+    mock_get.assert_called_once_with(
+        "https://r.jina.ai/https://example.com",
+        headers={"Authorization": "Bearer valid_jina_key"}
+    )
+    # Verify it actually saved to config
+    mock_set_key.assert_called_once_with("jina", "valid_jina_key")
+
+@patch("config_configure.out_chat_config.requests.get")
+@patch("config_configure.out_chat_config.config_manager.set_tool_api_key")
+def test_validate_and_set_tool_key_failure(mock_set_key, mock_get):
+    """Error Handling: Ensures invalid Jina keys are rejected and NOT saved."""
+    # Mock a failed 401 Unauthorized response from Jina
+    mock_response = MagicMock()
+    mock_response.status_code = 401
+    mock_get.return_value = mock_response
+
+    res = out_chat.validate_and_set_tool_key("jina", "bad_jina_key")
+
+    assert res["status"] == "error"
+    assert "Validation failed" in res["message"]
+    assert "status 401" in res["message"]
+    
+    # Verify it prevented saving
+    mock_set_key.assert_not_called()
+
+def test_validate_and_set_tool_key_unknown():
+    """Error Handling: Rejects unknown tool names."""
+    res = out_chat.validate_and_set_tool_key("fake_tool", "some_key")
+    
+    assert res["status"] == "error"
+    assert "Unknown tool name" in res["message"]

@@ -10,6 +10,7 @@ DEFAULT_CONFIG = {
         "name": None,
         "username": None,
         "api_keys": {"gemini": None, "groq": None},
+        "tool_keys":{"jina":None},
     },
     "models": {
         "default_provider": "gemini",

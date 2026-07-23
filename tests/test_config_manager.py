@@ -111,6 +111,25 @@ def test_sandbox_environment_persistence():
     assert cm.get_workspace_path().endswith("custom/dev/folder".replace("/", os.sep))
 
 
+def test_set_and_get_tool_api_key_interaction():
+    """Verifies that tool API keys (like Jina) are correctly saved and retrieved."""
+    # Store key in the mock json config
+    cm.set_tool_api_key("jina", "mock-jina-key-123")
+    
+    # Retrieve and verify key matches
+    key = cm.get_tool_api_key("jina")
+    assert key == "mock-jina-key-123"
+
+@patch.dict(os.environ, {"JINA_API_KEY": "fallback-env-jina-key"})
+def test_get_tool_api_key_environment_fallback():
+    """Ensures tool API keys fall back to environment variables if missing in config."""
+    # Ensure config holds None for jina key
+    cm.set_tool_api_key("jina", None)
+    
+    # Retrieval should fall back to mapped system environment variables
+    key = cm.get_tool_api_key("jina")
+    assert key == "fallback-env-jina-key"
+
 # def test_multitasking_config_boundary_clamping(temp_config_sandbox):
 #     """Verify that setters enforce standard safe lower boundaries to prevent system crashes."""
 #     # Negative/Zero active counts must be clamped to at least 1 container
@@ -144,3 +163,5 @@ def test_sandbox_environment_persistence():
 #     # 3. Idle timeout boundary checks
 #     cm.set_container_idle_timeout(45.5)
 #     assert cm.get_container_idle_timeout() == 45.5
+
+

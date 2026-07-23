@@ -1,5 +1,6 @@
 # config_configure/out_chat_config.py
 
+import requests 
 import utils.config_manager as config_manager
 
 
@@ -240,4 +241,49 @@ def update_max_concurrent_chats(count: int) -> dict:
     return {
         "status": "success",
         "message": f"Maximum concurrent chats successfully updated to {config_manager.get_max_concurrent_chats()}!",
+    }
+
+
+
+def get_tool_keys_status() -> dict:
+    """Headless function to retrieve the configuration status of Tool APIs."""
+    jina_status = "Configured" if config_manager.get_tool_api_key("jina") else "Not Set"
+    return {
+        "status": "success",
+        "data": {
+            "jina": jina_status
+        }
+    }
+
+def validate_and_set_tool_key(tool_name: str, key: str) -> dict:
+    """Headless function to validate and securely store a Tool API key."""
+    is_valid = False
+    error_msg = ""
+    
+    try:
+        if tool_name == "jina":
+            # Lightweight validation request to Jina
+            response = requests.get(
+                "https://r.jina.ai/https://example.com",
+                headers={"Authorization": f"Bearer {key}"}
+            )
+            if response.status_code == 200:
+                is_valid = True
+            else:
+                raise Exception(f"Jina API returned status {response.status_code}")
+        else:
+            raise Exception("Unknown tool name.")
+    except Exception as e:
+        error_msg = str(e)
+
+    if is_valid:
+        config_manager.set_tool_api_key(tool_name, key)
+        return {
+            "status": "success",
+            "message": f"Successfully configured {tool_name.upper()}!",
+        }
+    
+    return {
+        "status": "error",
+        "message": f"Validation failed: {error_msg}",
     }
