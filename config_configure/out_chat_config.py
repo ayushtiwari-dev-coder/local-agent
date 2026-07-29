@@ -173,59 +173,6 @@ def update_workspace_path(path: str) -> dict:
     return {"status": "success", "message": "Workspace path updated successfully."}
 
 
-def get_telegram_settings() -> dict:
-    """Headless function to retrieve Telegram configuration safely."""
-    config = config_manager.get_telegram_config()
-    token = config.get("bot_token")
-
-    # Mask the token so it doesn't print the whole secret in the UI
-    masked_token = (
-        f"{token[:5]}...{token[-4:]}" if token and len(token) > 10 else "Not Set"
-    )
-
-    return {
-        "status": "success",
-        "data": {
-            "bot_token_masked": masked_token,
-            "has_token": bool(token),
-            "allowed_user_ids": config.get("allowed_user_ids", []),
-        },
-    }
-
-
-def update_telegram_settings(
-    bot_token: str | None = None, allowed_users_str: str | None = None
-) -> dict:
-    """Headless function to update Telegram bot token and/or whitelist."""
-    current = config_manager.get_telegram_config()
-
-    # If None is passed, keep the existing token
-    new_token = bot_token if bot_token is not None else current.get("bot_token")
-
-    # If None is passed, keep the existing users
-    if allowed_users_str is not None:
-        users = []
-        if allowed_users_str.strip():
-            parts = allowed_users_str.split(",")
-            for p in parts:
-                p = p.strip()
-                if p.isdigit():
-                    users.append(int(p))
-                else:
-                    return {
-                        "status": "error",
-                        "message": f"Invalid User ID: '{p}'. Must be numbers only.",
-                    }
-    else:
-        users = current.get("allowed_user_ids", [])
-
-    config_manager.set_telegram_config(new_token, users)
-    return {
-        "status": "success",
-        "message": "Telegram configuration updated successfully!",
-    }
-
-
 def set_default_embedding_provider(provider: str) -> dict:
     """Headless function to switch the global default embedding provider."""
     config_manager.set_default_embedding_provider(provider)

@@ -1,9 +1,3 @@
-# =====================================================================
-# Web Framework & Real-Time Communication
-# =====================================================================
-fastapi>=0.100.0
-uvicorn>=0.20.0
-websockets>=11.0
 
 # =====================================================================
 # LLM Providers & SDKs
@@ -12,9 +6,8 @@ google-genai>=0.1.0       # Unified SDK used for 'from google import genai'
 groq>=0.9.0               # Official Groq SDK client 
 
 # =====================================================================
-# Interfaces & Integrations
+Integrations
 # =====================================================================
-pyTelegramBotAPI>=4.12.0  # Underlies 'import telebot' in telegram_bot.py 
 docker>=6.1.0             # Required if activating the optional Docker Sandboxes 
 
 # =====================================================================

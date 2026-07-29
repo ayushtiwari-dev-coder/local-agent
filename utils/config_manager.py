@@ -32,8 +32,6 @@ from utils.config.settings import (
     set_system_instruction,
     get_workspace_path,
     set_workspace_path,
-    get_telegram_config,
-    set_telegram_config,
     get_max_concurrent_chats,
     set_max_concurrent_chats,
     # DOCKER RE-ACTIVATION REFERENCE:
