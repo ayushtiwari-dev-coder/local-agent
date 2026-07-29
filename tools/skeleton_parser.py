@@ -1,5 +1,5 @@
 # tools/skeleton_parser.py
-
+import re
 MAX_SKELETON_LINES = 100
 
 
@@ -26,26 +26,34 @@ def _get_spatial_indices(lines: list[str], exclude_indices: set[int]) -> set[int
                 spatial_indices.add(idx)
     return spatial_indices
 
-
 def _build_code_skeleton(lines: list[str], ext: str) -> str:
-    """CASE 1: Code files. Only extracts semantic structure (functions/classes)."""
+    """CASE 1: Code files. Extracts semantic structure (functions/classes/globals/imports)."""
     semantic_indices = set()
+    
+    # Regex to catch UPPERCASE global variable assignments (e.g., MAX_RETRIES = 5)
+    global_var_regex = re.compile(r'^[A-Z0-9_]+\s*=')
+    
     for i, line in enumerate(lines):
         stripped = line.strip()
         if not stripped:
             continue
-
+            
         if ext in ["py", "pyw"]:
             if (
                 stripped.startswith("def ")
                 or stripped.startswith("class ")
                 or stripped.startswith("async def ")
+                or stripped.startswith("import ")
+                or stripped.startswith("from ")
+                or global_var_regex.match(stripped)
             ):
                 semantic_indices.add(i)
         elif ext in ["js", "ts", "jsx", "tsx"]:
             if (
                 stripped.startswith("function ")
                 or stripped.startswith("class ")
+                or stripped.startswith("import ")
+                or stripped.startswith("export ")
                 or "=>" in stripped
                 or (
                     stripped.startswith("const ")
@@ -54,25 +62,24 @@ def _build_code_skeleton(lines: list[str], ext: str) -> str:
             ):
                 if len(stripped) < 100:
                     semantic_indices.add(i)
-
+                    
     if not semantic_indices:
         return "No structural data could be extracted from this code file."
-
+        
     indices, is_downsampled = _downsample_indices(
         sorted(list(semantic_indices)), MAX_SKELETON_LINES
     )
-
+    
     skeleton = []
     for i in indices:
-        line_content = lines[i].strip()
+        # Use rstrip to keep left indentation for visual hierarchy
+        line_content = lines[i].rstrip() 
         preview = line_content[:150] + ("..." if len(line_content) > 150 else "")
         skeleton.append(f"Line {i + 1}: {preview}")
-
+        
     res = "\n".join(skeleton)
     if is_downsampled:
-        res += (
-            f"\n... (Skeleton downsampled to {MAX_SKELETON_LINES} items to fit context)"
-        )
+        res += f"\n... (Skeleton downsampled to {MAX_SKELETON_LINES} items to fit context)"
     return res
 
 

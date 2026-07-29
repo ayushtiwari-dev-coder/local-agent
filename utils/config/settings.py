@@ -128,13 +128,19 @@ def set_system_instruction(instruction: str | None) -> None:
 
 
 def get_workspace_path() -> str:
+    import os
+    from utils.config.core import load_config
+    
+    # 1. Runtime override: Locks the agent to the terminal's current directory
+    if "AGENT_WORKSPACE_OVERRIDE" in os.environ:
+        return os.path.abspath(os.environ["AGENT_WORKSPACE_OVERRIDE"])
+        
+    # 2. Fallback to global config
     path = (
         load_config()["settings"]
         .get("sandbox", {})
         .get("workspace_path", "~/.local_workflow_agent/workspace")
     )
-    import os
-
     return os.path.abspath(os.path.expanduser(path))
 
 

@@ -1,8 +1,10 @@
 # llm/providers/gemini.py
+
 from typing import List, Dict, Any, Callable, Generator
 from google import genai
 from google.genai import types
 import json
+
 from ..base_provider import BaseLLMProvider
 from ..schemas import LLMResponse, ToolCall, StreamChunk
 from utils.native_types_helpers import _to_native_types
@@ -23,14 +25,13 @@ class GeminiProvider(BaseLLMProvider):
     ) -> List[Dict[str, Any]]:
         """Maps universal standard messages to Gemini's specific SDK format."""
         gemini_messages = []
-        current_function_parts = []  # Buffer to group parallel tool calls
+        current_function_parts = []
 
         for msg in standard_messages:
             role = msg["role"]
             content = msg.get("content", "")
 
             if role == "tool":
-                # Buffer the tool responses instead of appending immediately
                 current_function_parts.append(
                     {
                         "function_response": {
@@ -40,20 +41,17 @@ class GeminiProvider(BaseLLMProvider):
                     }
                 )
             else:
-                # If we have buffered tool calls, flush them into a SINGLE message with role 'user'
                 if current_function_parts:
                     gemini_messages.append(
-                        {"role": "user", "parts": current_function_parts}  # CHANGED: 'function' -> 'user'
+                        {"role": "user", "parts": current_function_parts}
                     )
                     current_function_parts = []
 
-                # Handle user/model roles
                 gemini_role = "model" if role == "assistant" else "user"
                 parts = [{"text": content}] if content else []
 
                 if msg.get("tool_calls"):
                     for tc in msg["tool_calls"]:
-                        # SAFELY handle both dicts (from DB) and ToolCall objects
                         if isinstance(tc, dict):
                             tc_name = tc.get("name")
                             tc_args = tc.get("args")
@@ -72,16 +70,14 @@ class GeminiProvider(BaseLLMProvider):
                             part_dict["thought_signature"] = metadata[
                                 "thought_signature"
                             ]
-
                         parts.append(part_dict)
 
                 if parts:
                     gemini_messages.append({"role": gemini_role, "parts": parts})
 
-        # Flush any remaining tool calls at the very end of the loop
         if current_function_parts:
             gemini_messages.append(
-                {"role": "user", "parts": current_function_parts}  
+                {"role": "user", "parts": current_function_parts}
             )
 
         return gemini_messages
@@ -136,70 +132,59 @@ class GeminiProvider(BaseLLMProvider):
 
         config = types.GenerateContentConfig(**config_params)
 
+        # 4. Use unary generate_content inside retry logic
         def make_gemini_request():
-            return self.client.models.generate_content_stream(
+            return self.client.models.generate_content(
                 model=self.model_name, contents=gemini_messages, config=config
             )
 
-        # 4. Use generic retry template
-        stream = generate_with_retry(
+        response = generate_with_retry(
             request_fn=make_gemini_request,
             is_quota_error_fn=is_quota_error,
             status_callback=kwargs.get("status_callback"),
             max_attempts=3,
         )
 
-        # 5. Parse and yield chunks
-        for chunk in stream:
-            text_chunk = ""
-            tool_deltas = []
+        # 5. Extract text, tool calls, and token usage from response
+        text_content = ""
+        tool_deltas = []
+        prompt_tokens = 0
+        comp_tokens = 0
 
-            if chunk.candidates and chunk.candidates[0].content:
-                for part in chunk.candidates[0].content.parts:
-                    if part.text:
-                        text_chunk += part.text
+        if response.candidates and response.candidates[0].content:
+            for part in response.candidates[0].content.parts:
+                if part.text:
+                    text_content += part.text
 
-                    if part.function_call:
-                        metadata = {}
-                        if (
-                            hasattr(part, "thought_signature")
-                            and part.thought_signature
-                        ):
-                            metadata["thought_signature"] = part.thought_signature
+                if part.function_call:
+                    metadata = {}
+                    if hasattr(part, "thought_signature") and part.thought_signature:
+                        metadata["thought_signature"] = part.thought_signature
 
-                        tool_deltas.append(
-                            {
-                                "index": 0,
-                                "id": getattr(
-                                    part.function_call,
-                                    "id",
-                                    f"call_{part.function_call.name}",
-                                ),
-                                "name": part.function_call.name,
-                                "arguments": json.dumps(
-                                    _to_native_types(part.function_call.args)
-                                ),
-                                "metadata": metadata,
-                            }
-                        )
+                    tool_deltas.append(
+                        {
+                            "index": 0,
+                            "id": getattr(
+                                part.function_call,
+                                "id",
+                                f"call_{part.function_call.name}",
+                            ),
+                            "name": part.function_call.name,
+                            "arguments": json.dumps(
+                                _to_native_types(part.function_call.args)
+                            ),
+                            "metadata": metadata,
+                        }
+                    )
 
-            # Extract usage if final chunk
-            prompt_tokens = (
-                chunk.usage_metadata.prompt_token_count
-                if chunk.usage_metadata
-                else 0
-            )
-            comp_tokens = (
-                chunk.usage_metadata.candidates_token_count
-                if chunk.usage_metadata
-                else 0
-            )
-            is_finished = True if chunk.usage_metadata else False
+        if response.usage_metadata:
+            prompt_tokens = response.usage_metadata.prompt_token_count or 0
+            comp_tokens = response.usage_metadata.candidates_token_count or 0
 
-            yield StreamChunk(
-                text=text_chunk,
-                tool_call_deltas=tool_deltas,
-                is_finished=is_finished,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=comp_tokens,
-            )
+        yield StreamChunk(
+            text=text_content,
+            tool_call_deltas=tool_deltas,
+            is_finished=True,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=comp_tokens,
+        )

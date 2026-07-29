@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ayu-agent"
+version = "0.1.0"
+description = "Local CLI Coding Agent"
+# Tell the build system we will provide dependencies dynamically
+dynamic = ["dependencies"]
+
+[project.scripts]
+# This creates the global terminal command
+aayu-agent = "main:main"
+
+[tool.setuptools.dynamic]
+# Read the dependencies directly from your requirements.txt
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools]
+packages = [
+    "cli", "config_configure", "database", "engine", 
+    "interfaces", "llm", "managers", "queries", 
+    "security", "tools", "utils"
+]
+py-modules = ["main"]

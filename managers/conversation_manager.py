@@ -150,7 +150,7 @@ def save_assistant_message(conversation_id: int, content: str) -> dict:
     """
     clean_content = content.strip()
     if not clean_content:
-        raise ValueError("Assistant response content cannot be empty.")
+        clean_content=["tool has been called"]
 
     return create_message(conversation_id, role="assistant", content=clean_content)
 

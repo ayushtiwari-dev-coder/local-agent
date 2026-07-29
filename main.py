@@ -1,5 +1,10 @@
 # main.py
 import sys
+
+import os
+current_dir = os.getcwd()
+os.environ["AGENT_WORKSPACE_OVERRIDE"] = current_dir
+print(f"\n[*] Workspace locked to: {current_dir}\n")
 import argparse
 
 # Enforce UTF-8 safely to avoid local system terminal encoding crashes
@@ -64,8 +69,13 @@ def start_web():
     uvicorn.run(app, host="127.0.0.1", port=8000)
 
 
-def main():
-    """Main Entrypoint Router for the Local Workflow Agent."""
+def main(): 
+    """Main Entrypoint Router for the Local Workflow Agent.""" 
+    
+    # --- NEW: Lock the workspace to the current terminal directory ---
+    
+    # -----------------------------------------------------------------
+    
     print("Initializing local assistant database...")
     try:
         create_tables()
