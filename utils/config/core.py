@@ -42,10 +42,6 @@ DEFAULT_CONFIG = {
             "max_total_containers": 10,
             "container_idle_timeout_minutes": 30.0,
         },
-        "telegram": {
-            "bot_token": None,
-            "allowed_user_ids": [],
-        },
         "cli": {"log_truncation_limit": 500},
         "max_concurrent_chats": 3,
     },
