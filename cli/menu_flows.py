@@ -393,11 +393,10 @@ def provider_management_flow() -> None:
         )
         print(" [4] Edit Advanced Agent Settings (Max Turns, Sandbox, etc.)")
         print(" [5] Models & Prompts Configuration")
-        print(" [6] Telegram Bot Configuration")
-        print(" [7] Back to Main Menu")
+        print(" [6] Back to Main Menu")
         print(SEPARATOR)
 
-        choice = input(" Choose option (1-7): ").strip()
+        choice = input(" Choose option (1-6): ").strip()
 
         if choice == "1":
             print(SEPARATOR)
@@ -431,67 +430,9 @@ def provider_management_flow() -> None:
         elif choice == "5":
             models_configuration_flow()
         elif choice == "6":
-            telegram_configuration_flow()
-        elif choice == "7":
             break
         else:
             print(" Invalid selection.")
-
-
-def telegram_configuration_flow() -> None:
-    """Interactive menu for managing Telegram Bot settings."""
-    while True:
-        print(SEPARATOR)
-        print(" Telegram Bot Configuration")
-        print(SEPARATOR)
-
-        res = out_chat_config.get_telegram_settings()
-        data = res["data"]
-
-        print(f" Current Bot Token: {data['bot_token_masked']}")
-        print(f" Allowed User IDs:  {data['allowed_user_ids']}")
-        print(SEPARATOR)
-        print(" [1] Update Bot Token")
-        print(" [2] Update Allowed User IDs (Whitelist)")
-        print(" [3] Remove Bot Token (Disable Telegram)")
-        print(" [4] Back")
-
-        choice = input(" Choose option (1-4): ").strip()
-
-        if choice == "1":
-            new_token = input("\n Enter new Telegram Bot Token: ").strip()
-            if new_token:
-                res = out_chat_config.update_telegram_settings(bot_token=new_token)
-                print(f"\n[{res['status'].upper()}] {res['message']}")
-            else:
-                print(" Token update cancelled.")
-
-        elif choice == "2":
-            print(
-                "\n Enter allowed Telegram User IDs separated by commas (e.g., 123456, 987654)."
-            )
-            print(
-                " Leave completely blank to clear the list (WARNING: Nobody will be able to use the bot)."
-            )
-            new_users = input(" User IDs: ").strip()
-            res = out_chat_config.update_telegram_settings(allowed_users_str=new_users)
-            print(f"\n[{res['status'].upper()}] {res['message']}")
-
-        elif choice == "3":
-            confirm = (
-                input("\n Are you sure you want to remove the Telegram token? (y/n): ")
-                .strip()
-                .lower()
-            )
-            if confirm == "y":
-                res = out_chat_config.update_telegram_settings(bot_token="")
-                print(f"\n[{res['status'].upper()}] Telegram bot disabled.")
-
-        elif choice == "4":
-            break
-        else:
-            print(" Invalid selection.")
-
 
 def run_main_app_loop() -> None:
     """The central profile checking and loop routing container."""
