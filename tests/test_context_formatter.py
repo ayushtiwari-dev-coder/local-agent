@@ -92,7 +92,8 @@ def test_format_context_standard_message_flow(mock_get_inst):
     ]
     system_instruction, standardized_messages = format_context(raw_db_messages)
 
-    assert "# CORE IDENTITY & OBJECTIVE\nYou are a highly" in system_instruction
+    assert "# IDENTITY\n"
+    "You are a general-purpose local assistant running directly on the user's own machine." in system_instruction
     assert len(standardized_messages) == 2
     assert standardized_messages[0]["role"] == "user"
     assert standardized_messages[1]["role"] == "assistant"
@@ -133,7 +134,8 @@ def test_format_context_extracts_previous_summaries(mock_get_inst):
 def test_format_context_empty_messages(mock_get_inst):
     """Brutal Test: Formatting an empty list of messages."""
     system_instruction, standardized_messages = format_context([])
-    assert "# CORE IDENTITY & OBJECTIVE\nYou are a highly" in system_instruction
+    assert "# IDENTITY\n"
+    "You are a general-purpose local assistant running directly on the user's own machine." in system_instruction
     assert standardized_messages == []
 
 
