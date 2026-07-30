@@ -1,17 +1,11 @@
-# --- CLI & Environment ---
-python-dotenv
+# requirements.txt
+requests
 rich
-
-# --- LLM Providers ---
 google-genai
 groq
 tiktoken
-
-# --- Native Tools ---
-requests
-ddgs
+docker
 markdown
 xhtml2pdf
-
-# --- Testing ---
-pytest
+ddgs
+python-dotenv
