@@ -9,7 +9,8 @@ def test_format_context_empty_messages(mock_get_inst):
     """Brutal Test: Formatting an empty list of messages."""
     system_instruction, standardized_messages = format_context([])
 
-    assert "# CORE IDENTITY & OBJECTIVE\nYou are a highly" in system_instruction
+    assert "# IDENTITY\n"
+    "You are a general-purpose local assistant running directly on the user's own machine." in system_instruction
     assert standardized_messages == []
 
 
