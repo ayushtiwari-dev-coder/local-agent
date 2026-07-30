@@ -80,6 +80,8 @@ class AgentEngine:
             if status_callback:
                 status_callback(f"Generating thoughts... [Turn #{turn_count}]")
 
+            # engine/agent_engine.py (Snippet inside send_message while loop)
+
             try:
                 # 1. Get the stream from the provider
                 stream = self.provider.generate_content(
@@ -87,13 +89,18 @@ class AgentEngine:
                     tools=get_all_tools(),
                     status_callback=status_callback,
                 )
-
+                
                 # 2. Pass to our middle piece to handle buffering and UI callbacks
                 full_text, parsed_tool_calls, prompt_tokens, comp_tokens = (
                     process_llm_stream(stream, send_message_callback)
                 )
+            except KeyboardInterrupt:
 
+                abort_msg = "[System] Execution interrupted by user via KeyboardInterrupt."
+                save_assistant_message(conversation_id, abort_msg)
+                return abort_msg
             except Exception as e:
+                
                 raise RuntimeError(f"LLM API execution failed: {e}") from e
 
             # =================================================================

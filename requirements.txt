@@ -1,37 +1,17 @@
+# --- CLI & Environment ---
+python-dotenv
+rich
 
-# =====================================================================
-# LLM Providers & SDKs
-# =====================================================================
-google-genai>=0.1.0       # Unified SDK used for 'from google import genai'
-groq>=0.9.0               # Official Groq SDK client 
+# --- LLM Providers ---
+google-genai
+groq
+tiktoken
 
-# =====================================================================
-Integrations
-# =====================================================================
-docker>=6.1.0             # Required if activating the optional Docker Sandboxes 
+# --- Native Tools ---
+requests
+ddgs
+markdown
+xhtml2pdf
 
-# =====================================================================
-# Text Processing & Utilities
-# =====================================================================
-tiktoken>=0.5.0           # Local token estimator for sliding context window logic 
-rich>=13.0.0              # Rich terminal layout and status callback panel rendering 
-python-dotenv>=1.0.0      # Secure local system .env file configuration parser 
-
-# =====================================================================
-# Document Processing & PDF Conversions
-# =====================================================================
-markdown>=3.4.0           # Converts workspace markdown drafts to raw HTML 
-xhtml2pdf>=0.2.11         # Underlies 'pisa.CreatePDF' for exporting workspaces 
-
-# =====================================================================
-# Research Tools & Web Scraping
-# =====================================================================
-requests>=2.31.0          # Handles HTTP connections to read target research URLs 
-beautifulsoup4>=4.12.0    # Deterministic cleaner to parse main HTML body segments 
-ddgs>=9.10.0              # Free DuckDuckGo Search client (renamed from duckduckgo_search)
-
-# =====================================================================
-# Testing Framework & Mocking
-# =====================================================================
-pytest>=7.4.0             # Core unit and integration test runner 
-httpx>=0.24.0             # Required by FastAPI's TestClient to run WebSocket testing 
+# --- Testing ---
+pytest
