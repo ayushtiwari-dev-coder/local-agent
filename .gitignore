@@ -5,6 +5,7 @@ assistant.db-wal
 
 # Configuration and secrets
 .env
+.venv
 .vscode
 
 # Python caching
@@ -18,3 +19,4 @@ database_test.py
 test.bat
 clean.bat
 migrate_db.py
+local_workflow_agent.egg-info/
