@@ -12,6 +12,8 @@ from security.sandbox_executor import LocalSandboxExecutor
 from tools.core import agent_tool
 import markdown
 from xhtml2pdf import pisa
+import fitz  
+import pymupdf4llm
 
 logger = logging.getLogger("tools.file_tools")
 import re
@@ -31,10 +33,19 @@ def get_sandbox_root() -> str:
 
 
 def _resolve_safe_path(path: str) -> str | None:
-    sandbox_root = get_sandbox_root()
-    full_path = os.path.realpath(os.path.join(sandbox_root, path))
+    # 1. Get the root and resolve any symlinks/casing issues (CRITICAL FOR WINDOWS)
+    sandbox_root = os.path.realpath(get_sandbox_root())
+    
+    # 2. Strip leading slashes so os.path.join doesn't treat it as an absolute path
+    clean_path = path.lstrip("/\\")
+    
+    # 3. Join and resolve the final target path
+    full_path = os.path.realpath(os.path.join(sandbox_root, clean_path))
+    
+    # 4. Safely check if the target path is inside the sandbox root
     if os.path.commonpath([full_path, sandbox_root]) != sandbox_root:
         return None
+        
     return full_path
 
 
@@ -178,122 +189,125 @@ def generate_pdf(markdown_content: str, filename: str) -> str:
 
 
 @agent_tool
-def get_file_skeleton(path: str) -> str:
+def get_file_skeletons(paths: list[str]) -> dict:
     """
-    Generates a line-numbered table of contents (skeleton) for code and markdown files.
-    Useful for understanding the structure of a large file before reading specific chunks.
-
-    Args:
-        path: The path to the file.
+    Generates a line-numbered table of contents (skeleton) for multiple code/markdown files at once.
+    CRITICAL: Always pass a list of paths, e.g., ["src/main.py", "README.md"].
     """
-    safe_path = _resolve_safe_path(path)
-    if safe_path is None:
-        return f"Error: Path '{path}' is outside the allowed workspace."
-    if not os.path.exists(safe_path):
-        return f"Error: File '{path}' not found."
-    if not os.path.isfile(safe_path):
-        return f"Error: '{path}' is not a file."
-
-    try:
-        with open(safe_path, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read()
-
-        filename = os.path.basename(safe_path)
-        # CALL THE ORCHESTRATOR
-        skeleton = generate_file_skeleton(content, filename)
-        if not skeleton:
-            return f"No structural skeleton detected for '{filename}'."
-        return skeleton
-    except Exception as e:
-        logger.exception(f"Failed to generate skeleton for '{path}': {e}")
-        return f"Error: Failed to generate skeleton: {e}"
+    if not isinstance(paths, list):
+        return {"error": "Expected a list of paths."}
+        
+    results = {}
+    for path in paths:
+        safe_path = _resolve_safe_path(path)
+        if safe_path is None:
+            results[path] = "Error: Path is outside allowed workspace."
+            continue
+        if not os.path.exists(safe_path):
+            results[path] = "Error: File not found."
+            continue
+            
+        try:
+            with open(safe_path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+            filename = os.path.basename(safe_path)
+            skeleton = generate_file_skeleton(content, filename)
+            results[path] = skeleton if skeleton else "No structural skeleton detected."
+        except Exception as e:
+            results[path] = f"Error generating skeleton: {e}"
+            
+    return results
 
 
 @agent_tool
-def read_file_chunk(path: str, start_line: int, end_line: int) -> str:
+def read_file_chunks(chunks: list[dict]) -> dict:
     """
-    Reads a specific range of lines from a file.
-    CRITICAL: Use this AFTER looking at a file's skeleton to read specific sections without overloading your memory.
-    Lines are 1-indexed.
-
+    Reads specific ranges of lines from multiple files at once.
     Args:
-        path: The path to the file.
-        start_line: The line number to start reading from (inclusive, starts at 1).
-        end_line: The line number to stop reading at (inclusive).
+        chunks: A list of objects. e.g., [{"path": "main.py", "start_line": 10, "end_line": 20}]
     """
-    safe_path = _resolve_safe_path(path)
-    if safe_path is None:
-        return f"Error: Path '{path}' is outside the allowed workspace."
-    if not os.path.exists(safe_path):
-        return f"Error: File '{path}' not found."
-    if not os.path.isfile(safe_path):
-        return f"Error: '{path}' is not a file."
-
-    try:
-        with open(safe_path, "r", encoding="utf-8", errors="replace") as f:
-            lines = []
-            for i, line in enumerate(f):
-                if i + 1 > end_line:
-                    break
-                if i + 1 >= start_line:
-                    lines.append(f"Line {i + 1}: {line.rstrip()}")
-
-            if not lines:
-                return f"No content found between lines {start_line} and {end_line}."
-            return "\n".join(lines)
-    except Exception as e:
-        logger.exception(f"Failed to read chunk from '{path}': {e}")
-        return f"Error: Failed to read file chunk: {e}"
+    if not isinstance(chunks, list):
+        return {"error": "Expected a list of chunk objects."}
+        
+    results = {}
+    for chunk in chunks:
+        path = chunk.get("path")
+        start_line = chunk.get("start_line", 1)
+        end_line = chunk.get("end_line", 100)
+        
+        chunk_id = f"{path}:{start_line}-{end_line}"
+        safe_path = _resolve_safe_path(path)
+        
+        if safe_path is None or not os.path.isfile(safe_path):
+            results[chunk_id] = "Error: Invalid file or outside workspace."
+            continue
+            
+        try:
+            with open(safe_path, "r", encoding="utf-8", errors="replace") as f:
+                lines = []
+                for i, line in enumerate(f):
+                    if i + 1 > end_line: break
+                    if i + 1 >= start_line: lines.append(f"Line {i + 1}: {line.rstrip()}")
+            results[chunk_id] = "\n".join(lines) if lines else "No content found in range."
+        except Exception as e:
+            results[chunk_id] = f"Error reading chunk: {e}"
+            
+    return results
 
 
 @agent_tool
-def search_inside_file(path: str, search_term: str, context_lines: int = 2) -> str:
+def search_inside_files(searches: list[dict]) -> dict:
     """
-    Searches for an exact string inside a file and returns the matching lines with surrounding context.
-    CRITICAL: Use this when a file has no skeleton, or when you need to find a specific variable, error, or keyword.
-
+    Searches for exact strings inside multiple files simultaneously.
     Args:
-        path: The path to the file.
-        search_term: The exact string to search for (case-insensitive).
-        context_lines: Number of lines to include before and after the match (default 2).
+        searches: A list of objects. e.g., [{"path": "main.py", "search_term": "def login", "context_lines": 2}]
     """
-    # DEFENSIVE TYPE-GUARD: If the LLM SDK explicitly passes null/None, fallback to default
-    if context_lines is None:
-        context_lines = 2
-    else:
-        context_lines = int(context_lines)
+    if not isinstance(searches, list):
+        return {"error": "Expected a list of search objects."}
+        
+    results = {}
+    for req in searches:
+        path = req.get("path")
+        term = req.get("search_term", "")
+        
+        # DEFENSIVE TYPE-GUARD: If the LLM SDK explicitly passes null/None, fallback to default
+        ctx = req.get("context_lines")
+        if ctx is None:
+            ctx = 2
+        else:
+            ctx = int(ctx)
+            
+        search_id = f"{path} -> '{term}'"
+        
+        safe_path = _resolve_safe_path(path)
+        if safe_path is None or not os.path.isfile(safe_path):
+            results[search_id] = "Error: Invalid file or outside workspace."
+            continue
+            
+        try:
+            with open(safe_path, "r", encoding="utf-8", errors="replace") as f:
+                all_lines = f.readlines()
+                
+            matched_indices = set()
+            match_output = []
+            
+            for i, line in enumerate(all_lines):
+                if term.lower() in line.lower():
+                    start = max(0, i - ctx)
+                    end = min(len(all_lines), i + ctx + 1)
+                    for j in range(start, end):
+                        if j not in matched_indices:
+                            match_output.append(f"Line {j + 1}: {all_lines[j].rstrip()}")
+                            matched_indices.add(j)
+                    match_output.append("---")
+            
+            final_output = "\n".join(match_output).strip()
+            results[search_id] = final_output if final_output else "No matches found."
+        except Exception as e:
+            results[search_id] = f"Error: {e}"
+            
+    return results
 
-    safe_path = _resolve_safe_path(path)
-    if safe_path is None:
-        return f"Error: Path '{path}' is outside the allowed workspace."
-    if not os.path.exists(safe_path):
-        return f"Error: File '{path}' not found."
-
-    try:
-        with open(safe_path, "r", encoding="utf-8", errors="replace") as f:
-            all_lines = f.readlines()
-
-        results = []
-        matched_indices = set()
-
-        for i, line in enumerate(all_lines):
-            if search_term.lower() in line.lower():
-                start = max(0, i - context_lines)
-                end = min(len(all_lines), i + context_lines + 1)
-
-                for j in range(start, end):
-                    if j not in matched_indices:
-                        results.append(f"Line {j + 1}: {all_lines[j].rstrip()}")
-                        matched_indices.add(j)
-                results.append("---")
-
-        if not results:
-            return f"No matches found for '{search_term}' in {path}."
-
-        return "\n".join(results).strip()
-    except Exception as e:
-        logger.exception(f"Failed to search in '{path}': {e}")
-        return f"Error: Failed to search file: {e}"
 
 
 @agent_tool
@@ -301,22 +315,30 @@ def list_workspace_directory(max_depth: int = 4) -> str:
     """
     Generates a visual, tree-like layout of all folders and files inside the workspace.
     CRITICAL: Use this at the start of a session to locate files and folders.
-    This prevents path guessing and respects sandbox boundaries.
-
-    Args:
-        max_depth: How deep to recursively search folders (default is 4).
     """
     try:
         sandbox_root = get_sandbox_root()
+        
+        # EXPANDED JUNK EXCLUSIONS (Saves massive amounts of context tokens!)
         ignore_dirs = {
-            ".git",
-            ".local_workflow_agent",
-            "__pycache__",
-            "node_modules",
-            ".venv",
-            "venv",
-            ".pytest_cache",
-            ".idea",
+            # Package / Dependency folders
+            "node_modules", "vendor", "target", "Pods",
+            
+            # Build / Compiler output folders
+            "dist", "build", "out", ".next", ".nuxt", ".output", "coverage", ".turbo", ".nx",
+            
+            # Version Control & IDEs
+            ".git", ".svn", ".hg", ".idea", ".vscode", ".vs",
+            
+            # Python / Caching / Virtual Envs
+            "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".local_workflow_agent",
+            ".venv", "venv", "env", "ENV",
+        }
+        
+        # Individual massive/useless files to ignore in the tree
+        ignore_files = {
+            ".DS_Store", "Thumbs.db", 
+            "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Cargo.lock"
         }
 
         lines = ["Workspace Directory Structure:"]
@@ -338,7 +360,8 @@ def list_workspace_directory(max_depth: int = 4) -> str:
                 return
 
             for idx, item in enumerate(items):
-                if item in ignore_dirs:
+                # Skip ignored directories OR ignored files
+                if item in ignore_dirs or item in ignore_files:
                     continue
 
                 path = os.path.join(directory, item)
@@ -347,7 +370,6 @@ def list_workspace_directory(max_depth: int = 4) -> str:
 
                 if os.path.isdir(path):
                     lines.append(f"{prefix}{connector}{item}/")
-                    # Prepare prefix for nested directories
                     new_prefix = prefix + ("    " if is_last else "│   ")
                     _build_tree(path, new_prefix, depth + 1)
                 else:
@@ -355,6 +377,7 @@ def list_workspace_directory(max_depth: int = 4) -> str:
 
         _build_tree(sandbox_root)
         return "\n".join(lines)
+
     except Exception as e:
         logger.exception(f"Failed to map directory: {e}")
         return f"Error: Failed to list workspace directory: {e}"
@@ -424,6 +447,76 @@ def edit_file_chunk(path: str, start_line: int, end_line: int, content: str) -> 
         logger.exception(f"Failed to surgically edit file '{path}': {e}")
         return f"Error: Failed to edit file chunk: {e}"
 
+@agent_tool
+def read_pdf(path: str, pages: list[int] = None) -> str:
+    """
+    Reads a PDF file and converts it to clean Markdown.
+    CRITICAL: For PDFs containing 5 pages or fewer:
+- Read the entire document in a single call.
+- Do not reread individual pages unless the user explicitly requests it.
+
+For larger PDFs:
+1. Read the opening pages.
+2. Locate the table of contents if present.
+3. Read only the relevant page ranges.
+4. Avoid repeatedly rereading pages that have already been processed.
+    
+    Args:
+        path: The path to the PDF file inside the workspace.
+        pages: Optional. A list of specific 1-based page numbers to read (e.g., [1, 2, 10]). 
+               If empty, reads the document (but caps at 5 pages for large files).
+    """
+    safe_path = _resolve_safe_path(path)
+    if safe_path is None:
+        return f"Error: Path '{path}' is outside the allowed workspace."
+    
+    if not os.path.exists(safe_path):
+        return f"Error: File '{path}' not found."
+        
+    if not safe_path.lower().endswith(".pdf"):
+        return "Error: File is not a PDF."
+
+    try:
+        # 1. Quickly check the total page count
+        doc = fitz.open(safe_path)
+        total_pages = len(doc)
+        doc.close()
+        
+        warning_msg = ""
+        
+        # 2. Smart Chunking Logic to protect the LLM's memory
+        if not pages:
+            if total_pages > 10:
+                # If it's a big book, only read the first 5 pages by default
+                pages = list(range(1, 6))
+                warning_msg = (
+                    f"\n\n> **SYSTEM NOTE:** This PDF is massive ({total_pages} pages). "
+                    f"To protect your memory, only pages 1-5 were extracted. "
+                    f"Please call `read_pdf` again using the `pages` argument to read specific sections."
+                )
+            else:
+                # If it's short, read the whole thing
+                pages = list(range(1, total_pages + 1))
+        
+        # 3. Validate requested pages
+        valid_pages = []
+        for p in pages:
+            if 1 <= p <= total_pages:
+                valid_pages.append(p - 1)  # Convert 1-based to 0-based for PyMuPDF
+            else:
+                return f"Error: Page {p} is out of bounds. The PDF only has {total_pages} pages."
+
+        # 4. Extract to Markdown
+        md_text = pymupdf4llm.to_markdown(safe_path, pages=valid_pages)
+        
+        if not md_text.strip():
+            return f"Success: Read pages {pages}, but no extractable text was found (it might be a scanned image)."
+            
+        return md_text + warning_msg
+        
+    except Exception as e:
+        logger.exception(f"Failed to read PDF '{path}': {e}")
+        return f"Error: Failed to read PDF: {e}"
 
 # ACTIVE EXECUTOR (RAM-Free Local Host Mode)
 _sandbox = LocalSandboxExecutor(get_sandbox_root())
