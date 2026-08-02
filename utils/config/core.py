@@ -10,7 +10,7 @@ DEFAULT_CONFIG = {
         "name": None,
         "username": None,
         "api_keys": {"gemini": None, "groq": None},
-        "tool_keys":{"jina":None},
+        "tool_keys":{"jina":None,"notion":None},
     },
     "models": {
         "default_provider": "gemini",
@@ -41,6 +41,13 @@ DEFAULT_CONFIG = {
             "max_active_containers": 3,
             "max_total_containers": 10,
             "container_idle_timeout_minutes": 30.0,
+        },
+        "notion": {
+            "db_projects": "",
+            "db_reasoning": "",
+            "db_knowledge": "",
+            "db_brain_dumps": "",
+            "db_ideas": ""
         },
         "cli": {"log_truncation_limit": 500},
         "max_concurrent_chats": 3,

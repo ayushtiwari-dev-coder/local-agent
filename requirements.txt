@@ -7,5 +7,6 @@ tiktoken
 docker
 markdown
 xhtml2pdf
+pymupdf4llm
 ddgs
 python-dotenv

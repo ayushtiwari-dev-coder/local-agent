@@ -9,28 +9,45 @@ from tools.core import agent_tool
 
 
 @agent_tool
-def remember_user_preference(content: str, category: str) -> str:
+def remember_user_preferences(preferences: list[dict]) -> dict:
     """
-    Autonomously remembers a user preference, setting, configuration, or fact.
-    The system automatically clusters it under the best category block.
+    Autonomously remembers multiple user preferences, settings, or facts in one go.
+    Args:
+        preferences: e.g. [{"content": "User prefers pytest", "category": "coding"}, ...]
     """
-    try:
-        save_semantic_memory(content, category)
-        return "Memory successfully stored and clustered."
-    except Exception as e:
-        return f"Error: Failed to store memory: {e}"
-
+    if not isinstance(preferences, list):
+        return {"error": "Expected a list of preference objects."}
+        
+    results = {}
+    for pref in preferences:
+        content = pref.get("content")
+        category = pref.get("category", "general")
+        try:
+            save_semantic_memory(content, category)
+            results[content[:20] + "..."] = "Successfully stored."
+        except Exception as e:
+            results[content[:20] + "..."] = f"Failed to store: {e}"
+            
+    return results
 
 @agent_tool
-def search_user_history(query: str, category: str) -> str:
+def search_user_histories(searches: list[dict]) -> dict:
     """
-    Searches user context history inside a specific category block
-    to retrieve facts, configurations, or personal preferences.
+    Searches user context history for multiple queries simultaneously.
+    Args:
+        searches: e.g. [{"query": "database config", "category": "general"}]
     """
-    try:
-        matches = retrieve_semantic_memory(query, category)
-        if not matches:
-            return "No relevant past history found in this block."
-        return "\n".join(f"- {m}" for m in matches)
-    except Exception as e:
-        return f"Error: Memory search failed: {e}"
+    if not isinstance(searches, list):
+        return {"error": "Expected a list of search objects."}
+        
+    results = {}
+    for req in searches:
+        query = req.get("query")
+        category = req.get("category", "general")
+        try:
+            matches = retrieve_semantic_memory(query, category)
+            results[query] = "\n".join(f"- {m}" for m in matches) if matches else "No relevant history found."
+        except Exception as e:
+            results[query] = f"Error: {e}"
+            
+    return results

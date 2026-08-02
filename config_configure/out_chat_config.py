@@ -234,3 +234,55 @@ def validate_and_set_tool_key(tool_name: str, key: str) -> dict:
         "status": "error",
         "message": f"Validation failed: {error_msg}",
     }
+
+# Add to config_configure/out_chat_config.py
+
+def validate_and_set_notion_key(api_key: str) -> dict:
+    """Validates the Notion API key and saves it securely."""
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Notion-Version": "2022-06-28"
+    }
+    
+    try:
+        # Hit a basic Notion endpoint to verify the token is active
+        res = requests.get("https://api.notion.com/v1/users/me", headers=headers)
+        
+        if res.status_code == 200:
+            # Uses your existing tool key setter!
+            config_manager.set_tool_api_key("notion", api_key)
+            return {"status": "success", "message": "Successfully configured NOTION API Key!"}
+        else:
+            return {"status": "error", "message": f"Notion API rejected the key: {res.text}"}
+            
+    except Exception as e:
+        return {"status": "error", "message": f"Validation failed: {str(e)}"}
+
+
+def set_notion_dbs_config(db_projects: str, db_reasoning: str, db_knowledge: str, db_brain_dumps: str, db_ideas: str) -> dict:
+    """Headless function to save Notion Database IDs."""
+    try:
+        config_manager.set_notion_dbs(
+            db_projects, db_reasoning, db_knowledge, db_brain_dumps, db_ideas
+        )
+        return {"status": "success", "message": "Successfully saved Notion Database IDs!"}
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to save Database IDs: {str(e)}"}
+
+
+def get_notion_status() -> dict:
+    """Retrieves the configuration status of the Notion API Key and DBs."""
+    api_key = config_manager.get_tool_api_key("notion")
+    dbs = config_manager.get_notion_dbs()
+    
+    # Check if all 5 DBs have a value
+    dbs_configured = all(val for val in dbs.values()) if dbs else False
+    
+    return {
+        "status": "success",
+        "data": {
+            "api_key_configured": "Configured" if api_key else "Not Set",
+            "dbs_configured": "Configured" if dbs_configured else "Missing/Incomplete",
+            "dbs": dbs
+        }
+    }

@@ -34,6 +34,8 @@ from utils.config.settings import (
     set_workspace_path,
     get_max_concurrent_chats,
     set_max_concurrent_chats,
+    get_notion_dbs,
+    set_notion_dbs,
     # DOCKER RE-ACTIVATION REFERENCE:
     # If Docker sandboxing is enabled, uncomment these imported functions:
     # get_max_active_containers,
