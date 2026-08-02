@@ -140,6 +140,27 @@ def set_max_concurrent_chats(count: int) -> None:
 
 # Add to the bottom of utils/config/settings.py
 
+def get_notion_dbs() -> dict:
+    """Retrieves the Notion Database IDs from the config."""
+    config = load_config()
+    return config["settings"].get("notion", {})
+
+def set_notion_dbs(db_projects: str, db_reasoning: str, db_knowledge: str, db_brain_dumps: str, db_ideas: str) -> None:
+    """Saves the Notion Database IDs to the config."""
+    config = load_config()
+    if "notion" not in config["settings"]:
+        config["settings"]["notion"] = {}
+        
+    config["settings"]["notion"]["db_projects"] = db_projects.strip()
+    config["settings"]["notion"]["db_reasoning"] = db_reasoning.strip()
+    config["settings"]["notion"]["db_knowledge"] = db_knowledge.strip()
+    config["settings"]["notion"]["db_brain_dumps"] = db_brain_dumps.strip()
+    config["settings"]["notion"]["db_ideas"] = db_ideas.strip()
+    
+    save_config(config)
+
+# Add to the bottom of utils/config/settings.py
+
 # def get_max_active_containers() -> int:
 #     """Gets the user-defined maximum limit for concurrently running containers."""
 #     config = load_config()

@@ -74,18 +74,23 @@ def main_menu(user_name: str) -> str:
         "7":"exit",
     }.get(choice, "invalid")
 
+# In cli/menu_flows.py
+
 def tool_keys_management_flow() -> None:
-    """Dedicated menu for managing external Tool APIs."""
+    """Dedicated menu for managing external Tool APIs and Databases."""
     while True:
         status_res = out_chat_config.get_tool_keys_status()["data"]
+        notion_status = out_chat_config.get_notion_status()["data"]
         
         print(SEPARATOR)
-        print(" Tool API Key Management Menu")
+        print(" Tool API Key & Database Management Menu")
         print(f" [1] Configure Jina AI (Web Research) - Status: [{status_res['jina']}]")
-        print(" [2] Back to Main Menu")
+        print(f" [2] Configure Notion API Key         - Status: [{notion_status['api_key_configured']}]")
+        print(f" [3] Configure Notion Database IDs    - Status: [{notion_status['dbs_configured']}]")
+        print(" [4] Back to Main Menu")
         print(SEPARATOR)
         
-        choice = input(" Choose option (1-2): ").strip()
+        choice = input(" Choose option (1-4): ").strip()
         
         if choice == "1":
             print(SEPARATOR)
@@ -94,11 +99,40 @@ def tool_keys_management_flow() -> None:
             if not key_input:
                 print(" API Key cannot be blank.")
                 continue
-            
             print(" Validating API key... Please wait.")
             res = out_chat_config.validate_and_set_tool_key("jina", key_input)
             print(f"\n[{res['status'].upper()}] {res['message']}")
+            
         elif choice == "2":
+            print(SEPARATOR)
+            print(" Setting up API key for: [NOTION]")
+            key_input = input(" Paste your Notion API key (secret_...): ").strip()
+            if not key_input:
+                print(" API Key cannot be blank.")
+                continue
+            print(" Validating Notion API key... Please wait.")
+            res = out_chat_config.validate_and_set_notion_key(key_input)
+            print(f"\n[{res['status'].upper()}] {res['message']}")
+            
+        elif choice == "3":
+            print(SEPARATOR)
+            print(" Configure Notion Database IDs")
+            print(" (Press Enter to keep the current ID)")
+            
+            current_dbs = notion_status["dbs"] or {}
+            
+            db_projects = input(f" Projects DB ID [{current_dbs.get('db_projects', '')}]: ").strip() or current_dbs.get('db_projects', '')
+            db_reasoning = input(f" Project Reasoning DB ID [{current_dbs.get('db_reasoning', '')}]: ").strip() or current_dbs.get('db_reasoning', '')
+            db_knowledge = input(f" Knowledge DB ID [{current_dbs.get('db_knowledge', '')}]: ").strip() or current_dbs.get('db_knowledge', '')
+            db_brain_dumps = input(f" Brain Dumps DB ID [{current_dbs.get('db_brain_dumps', '')}]: ").strip() or current_dbs.get('db_brain_dumps', '')
+            db_ideas = input(f" Ideas DB ID [{current_dbs.get('db_ideas', '')}]: ").strip() or current_dbs.get('db_ideas', '')
+            
+            res = out_chat_config.set_notion_dbs_config(
+                db_projects, db_reasoning, db_knowledge, db_brain_dumps, db_ideas
+            )
+            print(f"\n[{res['status'].upper()}] {res['message']}")
+            
+        elif choice == "4":
             break
         else:
             print(" Invalid selection.")
