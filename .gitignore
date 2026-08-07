@@ -20,3 +20,4 @@ test.bat
 clean.bat
 migrate_db.py
 local_workflow_agent.egg-info/
+GEMINI.md
